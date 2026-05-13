@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -78,10 +79,12 @@ void generate_ground_truth(DisparityMap& gt,
       //  - true_disp >= max_disp (would not be found in search range)
       bool border  = (r < radius) || (r >= H - radius) ||
                      (c < radius) || (c >= W - radius);
-      bool no_match = (c - true_disp < radius);
+      // Match exactly what sad_stereo_cpu skips: needs right patch valid for
+      // ALL d in [0, max_disp), so c - (max_disp-1) - radius >= 0.
+      bool right_oob    = (c - (max_disp - 1) - radius < 0);
       bool out_of_range = (true_disp >= max_disp);
 
-      if (border || no_match || out_of_range) {
+      if (border || right_oob || out_of_range) {
         gt.at(r, c) = -1;
       } else {
         gt.at(r, c) = true_disp;
@@ -276,4 +279,56 @@ void print_accuracy(const DisparityMap& estimated, const DisparityMap& gt) {
   std::cout << "    Bad-px rate : " << bad  << " %"
             << "  (|err| > " << DISP_TOL << " px)\n";
   std::cout << "----------------------------------------------------\n";
+}
+
+// ===========================================================================
+// Image I/O
+// ===========================================================================
+
+void save_pgm(const Image& img, const std::string& path) {
+  std::ofstream f(path, std::ios::binary);
+  CHECK(f.is_open(), ("save_pgm: cannot open " + path).c_str());
+  f << "P5\n" << img.width << " " << img.height << "\n255\n";
+  f.write(reinterpret_cast<const char*>(img.data), img.size());
+}
+
+void save_disparity_pgm(const DisparityMap& disp, const std::string& path, int max_disp) {
+  std::ofstream f(path, std::ios::binary);
+  CHECK(f.is_open(), ("save_disparity_pgm: cannot open " + path).c_str());
+  f << "P5\n" << disp.width << " " << disp.height << "\n255\n";
+  // Scale disparity [0, max_disp) → [0, 255] for visualization
+  std::vector<uint8_t> buf(disp.size());
+  for (int i = 0; i < disp.size(); ++i) {
+    int d = disp.data[i];
+    if (d < 0) d = 0;
+    buf[i] = static_cast<uint8_t>(std::min(255, d * 255 / std::max(1, max_disp - 1)));
+  }
+  f.write(reinterpret_cast<const char*>(buf.data()), buf.size());
+}
+
+// ===========================================================================
+// CSV benchmark output
+// ===========================================================================
+
+void append_benchmark_csv(const std::string& csv_path,
+                          const std::string& impl,
+                          const StereoParams& p,
+                          const TimerResult& t,
+                          double gops_per_frame) {
+  bool write_header = false;
+  {
+    std::ifstream probe(csv_path);
+    write_header = !probe.good();
+  }
+  std::ofstream f(csv_path, std::ios::app);
+  CHECK(f.is_open(), ("append_benchmark_csv: cannot open " + csv_path).c_str());
+  if (write_header) {
+    f << "impl,height,width,max_disp,radius,mean_ms,min_ms,fps,gops_per_frame,gops_per_s\n";
+  }
+  double gops_per_s = (t.mean_ms > 0) ? gops_per_frame / (t.mean_ms / 1e3) : 0.0;
+  f << std::fixed << std::setprecision(4)
+    << impl << ","
+    << p.height << "," << p.width << "," << p.max_disp << "," << p.radius << ","
+    << t.mean_ms << "," << t.min_ms << "," << t.fps << ","
+    << gops_per_frame << "," << gops_per_s << "\n";
 }

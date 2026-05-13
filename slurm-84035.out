@@ -1,0 +1,86 @@
+Starting at Tue May 12 20:52:20 PDT 2026
+
+make: 'main_cpu' is up to date.
+nvcc -std=c++17 -O2 -arch=sm_75    -c perception_gpu.cu -o perception_gpu.o
+nvcc -std=c++17 -O2 -arch=sm_75    main_gpu.o perception_gpu.o perception_cpu.o -o main_gpu
+
+Output from main_cpu
+----------------
+
+====================================================
+  Stereo SAD — CPU baseline
+====================================================
+  Image size   : 480 x 640
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 5
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  [CPU SAD]
+    Mean  : 359.828   ms  ±0.655 ms
+    Min   : 359.195   ms
+    FPS   : 2.779    
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  Saved: disp.pgm, disp_gt.pgm
+  Compute (approx): 0.8713 GOps/frame
+  Throughput      : 2.4214 GOps/s  (CPU, single-threaded)
+====================================================
+
+
+Output from main_gpu
+----------------
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 480 x 640
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 5
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.87127 GOps/frame
+
+  [CPU]
+    Mean  :   359.651 ms  ±0.261 ms
+    Min   :   359.321 ms
+    FPS   :     2.780
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  [GPU basic]
+    Mean  : 0.8516 ms
+    FPS   : 1174.2999
+    Tput  : 1023.1328 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  Saved: disp_basic.pgm
+  [GPU smem]
+    Mean  : 0.4200 ms
+    FPS   : 2380.7347
+    Tput  : 2074.2637 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  Saved: disp_smem.pgm
+  [GPU tiled]
+    Mean  : 7.7763 ms
+    FPS   : 128.5959
+    Tput  : 112.0418 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  Saved: disp_tiled.pgm, disp_gt.pgm
+====================================================
+
+  Benchmark data written to: benchmark.csv

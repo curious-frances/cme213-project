@@ -1,0 +1,197 @@
+\documentclass[11pt]{article}
+
+\usepackage{aa222-jmlr2e}
+\makeatother
+\usepackage{lipsum}
+\usepackage{pdfpages}
+\usepackage{sectsty}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{natbib}
+\bibliographystyle{ieeetr}
+
+\begin{document}
+
+\title{CME 213 Final Project Milestone 3\\
+Real-Time Multi-Camera 3D Perception and Tracking for Robotics}
+
+\author{%
+\begin{center}
+\begin{minipage}[t]{0.46\textwidth}\centering
+\textbf{Frances Raphael}\\
+{\ttfamily fraphael@stanford.edu}\\
+\end{minipage}\hfill
+\begin{minipage}[t]{0.46\textwidth}\centering
+\textbf{Aanya Tashfeen}\\
+{\ttfamily aanya@stanford.edu}\\
+\end{minipage}
+\end{center}
+}
+\maketitle
+
+\section{Summary of Progress}
+
+Since Milestone 2, we have completed the CPU baseline and all three planned CUDA kernel variants for
+the stereo SAD disparity estimation step of our pipeline. The CPU baseline described in our Milestone 2
+design is fully implemented and verified. The three GPU kernels---a naive global-memory kernel, a
+shared-memory tiled kernel, and a row-reuse tiled kernel---are all implemented, launched from a
+common host driver, and produce verified correct results. A benchmarking driver and CSV logging
+infrastructure are also in place to facilitate the performance analysis planned for Milestone 4.
+
+The main change from our Milestone 2 design is that we narrowed the initial GPU target to a single
+kernel: stereo SAD matching. In Milestone 2 we left open the possibility of also accelerating
+preprocessing, but we found that the SAD matching step dominates runtime so completely that
+it is the only kernel worth optimizing at this stage. Object tracking and MPI distribution are not
+yet started, as planned for Milestone 4.
+
+\section{CUDA Kernels}
+
+We implemented three CUDA kernels, all computing the same operation: for each pixel $(r, c)$ in
+the left image, find the disparity $d \in [0, D_{\max})$ that minimizes the Sum of Absolute Differences
+(SAD) over a $(2R+1) \times (2R+1)$ patch between the left image centred at $(r,c)$ and the right
+image centred at $(r, c-d)$. All kernels use a one-thread-per-output-pixel decomposition with
+$16 \times 16$ or $32 \times 8$ thread blocks.
+
+\textbf{Basic kernel.} Each thread independently fetches all required pixels from global memory.
+For every candidate disparity, the thread reads a $(2R+1)^2$ patch from each image and accumulates
+the absolute differences. No data is shared between threads. This kernel serves as the lower-bound
+baseline for the GPU implementations and stresses global memory bandwidth, since each pixel
+may be loaded by many overlapping patches across nearby threads.
+
+\textbf{Shared memory kernel.} Each $16 \times 16$ thread block cooperatively loads a tile of the left
+image and a wider tile of the right image into shared memory before any SAD computation begins.
+The right image tile is extended by $D_{\max}$ columns to cover every disparity offset needed by
+threads in the block. After a \texttt{\_\_syncthreads()} barrier, each thread reads its patch
+entirely from on-chip shared memory. This eliminates the redundant global memory reads that occur
+in the basic kernel when adjacent threads access overlapping patches, and is expected to be the
+most memory-efficient variant.
+
+\textbf{Tiled kernel.} This variant eliminates register spilling by declaring the accumulator
+array with a compile-time size \texttt{TILED\_MAX\_DISP}$= 64$ and applying \texttt{\#pragma unroll}
+to all disparity loops. After unrolling, each \texttt{sad[d]} has a statically known index,
+so the compiler assigns it its own register rather than spilling to local memory.
+The patch is traversed once; for each position the left-image pixel is loaded into a register
+and reused across all 64 disparity comparisons, giving a $64\times$ reduction in left-image
+loads relative to the basic kernel. Right-image accesses are a descending consecutive sequence
+per patch element per warp, which coalesces into a single cache-line transaction.
+The kernel uses $16 \times 8$ thread blocks, giving 128 threads per block and keeping
+total register usage (64 accumulators $+$ overhead $\approx$ 80 registers per thread $\times$
+128 threads $= 10{,}240$ registers) well within the 65{,}536-register SM budget.
+
+\section{C++ Wrapper and CPU Code}
+
+All GPU memory management is handled by a \texttt{GpuBuffers} RAII struct that allocates
+device memory for the left image, right image, and disparity output on construction, copies the
+host images to the device via \texttt{cudaMemcpy}, and frees all allocations on destruction.
+Kernel launches are wrapped in a common timing helper that uses \texttt{cudaEvent\_t} to measure
+elapsed time with sub-millisecond precision. Each kernel is warmed up with one untimed launch
+before the timed repetitions begin, to avoid including JIT compilation or cold-start overhead
+in the reported measurements.
+
+The CPU baseline implements the same SAD algorithm in plain C++ using nested loops. It serves
+as both a performance reference and a correctness oracle for all three GPU kernels. A
+\texttt{time\_sad\_stereo\_cpu} function runs the baseline for a configurable number of repetitions
+and reports mean, standard deviation, and minimum wall-clock time. A shared benchmarking driver
+(\texttt{main\_gpu}) runs all four implementations in sequence on the same synthetic image pair
+and logs one CSV row per implementation, which is used to generate roofline plots offline.
+Image outputs (left image, right image, disparity maps) are saved as binary PGM files for
+visual inspection.
+
+\section{Correctness Testing}
+
+We verify each GPU kernel against the CPU reference. For a synthetic stereo pair where the right
+image is the left image shifted by a known disparity $d^* = 24$ pixels, the minimum SAD at
+$d = d^*$ is identically zero, which is unbeatable. Any correct implementation should therefore
+recover $d^*$ for every valid pixel, giving mean absolute error (MAE) of exactly zero.
+
+An early run revealed a mismatch between the ground truth validity mask (which marked pixels
+as valid when $c \geq d^* + R$) and the SAD kernel's validity check (which requires $c \geq D_{\max}
+- 1 + R$ to ensure all disparities are in bounds). This caused $\sim$6.4\% of evaluated pixels
+to receive the border fill value of 0 rather than the correct disparity, inflating MAE to 1.53 px.
+After aligning the ground truth mask with the kernel's validity condition, all four implementations---CPU
+and all three GPU kernels---achieve MAE~$= 0.000$~px and bad-pixel rate~$= 0.00\%$ on the
+480~$\times$~640 test image with $D_{\max} = 64$, $R = 2$.
+
+\section{Preliminary Performance Analysis}
+
+Table~\ref{tab:perf} reports measured runtimes on an NVIDIA RTX 2080 Ti (Turing, sm\_75,
+616~GB/s memory bandwidth, $\sim$13.4~TOPS INT32 throughput) for a 480~$\times$~640 image
+with $D_{\max} = 64$, $R = 2$ (5~$\times$~5 patches, approximately 0.87~GOps per frame).
+Each measurement is the mean over five timed repetitions after one warm-up run.
+
+\begin{table}[H]
+\centering
+\caption{Performance comparison across implementations. Speedup is relative to the CPU baseline.
+All GPU results have MAE $= 0.000$~px against the CPU reference.}
+\label{tab:perf}
+\begin{tabular}{lrrrr}
+\toprule
+Implementation & Time (ms) & FPS & Throughput (GOps/s) & Speedup \\
+\midrule
+CPU (single-thread) & 359.4 & 2.8     & 2.4     & 1$\times$   \\
+GPU basic           & 0.842 & 1{,}187 & 1{,}034 & 427$\times$ \\
+GPU shared memory   & 0.414 & 2{,}417 & 2{,}106 & 868$\times$ \\
+GPU tiled           & 0.429 & 2{,}330 & 2{,}030 & 838$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The shared memory and tiled kernels achieve nearly identical performance---0.414~ms and 0.429~ms
+respectively---both delivering roughly $868\times$ and $838\times$ speedup over the CPU and
+approximately 2{,}100~GOps/s throughput, corresponding to $\sim$15\% of the GPU's theoretical
+INT32 peak. The basic kernel is $\sim$2.5$\times$ slower at 0.842~ms, limited by redundant global
+memory traffic from overlapping patches across adjacent threads.
+
+Because the 480~$\times$~640 input images ($\approx$0.6~MB total) fit entirely in the RTX
+2080 Ti's 6~MB L2 cache, even the basic kernel exceeds the 616~GB/s DRAM bandwidth ceiling:
+its apparent throughput of 1{,}034~GOps/s implies an effective bandwidth of $\sim$1{,}034~GB/s,
+only possible because repeated accesses hit L2 rather than DRAM. The smem and tiled kernels
+push this further by reducing total data movement. The smem kernel loads each image tile once
+per block and eliminates inter-thread redundancy in shared memory. The tiled kernel achieves
+the same result differently: by loading each left-image pixel once into a register and reusing
+it across all 64 disparity comparisons, it cuts left-image loads by $64\times$ relative to the
+basic kernel. Both strategies converge on the same throughput, suggesting the remaining
+bottleneck is compute throughput rather than memory bandwidth at this image size.
+
+An earlier version of the tiled kernel suffered register spilling: allocating \texttt{sad[max\_disp]}
+with a runtime bound caused the compiler to place the array in local memory (backed by DRAM),
+degrading runtime to 7.78~ms---worse than basic. The fix was to declare the array with the
+compile-time constant \texttt{TILED\_MAX\_DISP}$=$64 and apply \texttt{\#pragma unroll} to all
+disparity loops, giving each \texttt{sad[d]} its own register after unrolling and eliminating
+all local memory traffic.
+
+\section{Challenges and Next Steps}
+
+Two main technical challenges arose during this milestone. The first was the ground truth
+validity mismatch described in Section~4. The second was diagnosing and fixing the tiled
+kernel's register spilling: our throughput metric counts arithmetic operations, so a kernel
+that spills to local memory simply appears to do less useful work per second rather than
+explicitly revealing excess memory traffic. Identifying the root cause required reasoning
+about compiler register allocation and reconfirming with measured runtime (7.78~ms with
+spilling vs.\ 0.429~ms after the fix). Both issues are now resolved, with all four
+implementations producing MAE $= 0.000$~px.
+
+For Milestone 4, the remaining tasks are:
+
+\textbf{MPI distribution.} Partition the image rows across MPI processes, with each process
+running the shared-memory GPU kernel on its assigned slab. Implement halo exchange to handle
+the patch border at slab boundaries, where each process needs \texttt{radius} rows from its
+neighbors to compute a complete disparity map.
+
+\textbf{Larger image experiments.} Benchmark on 1080p images ($1920 \times 1080$) and with
+larger $D_{\max}$ to test whether the L2 caching benefit observed at 480~$\times$~640
+degrades when the image data exceeds the 6~MB L2 cache.
+
+\textbf{Strong scaling.} Measure runtime and efficiency as the number of MPI processes increases
+from 1 to 8 with the total image size held fixed, and report communication overhead relative
+to GPU kernel time.
+
+\newpage
+
+\bibliography{refs}
+
+\end{document}

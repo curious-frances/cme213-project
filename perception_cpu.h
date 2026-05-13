@@ -38,10 +38,9 @@ void generate_left_image(Image& img);
 void generate_right_image(const Image& left, Image& right, int true_disp);
 
 // generate_ground_truth
-//   Fills `gt` with `true_disp` everywhere except the first `radius` columns
-//   and last `radius` columns which are set to -1 (invalid / border).
-//   Pixels in columns [0, true_disp) on the right image have no valid match
-//   so we also mark those as invalid (-1) in the ground truth.
+//   Fills `gt` with `true_disp` for every pixel the SAD algorithm will actually
+//   compute (i.e. same validity mask as sad_stereo_cpu), and -1 elsewhere.
+//   This ensures error is exactly 0 on a perfect synthetic pair.
 void generate_ground_truth(DisparityMap& gt,
                            int           true_disp,
                            int           radius,
@@ -118,5 +117,21 @@ TimerResult time_sad_stereo_cpu(const Image&  left,
 void print_stereo_header(const StereoParams& p);
 void print_timing_result(const TimerResult& t, const char* label);
 void print_accuracy(const DisparityMap& estimated, const DisparityMap& gt);
+
+// ===========================================================================
+// Image I/O helpers
+// ===========================================================================
+void save_pgm(const Image& img, const std::string& path);
+void save_disparity_pgm(const DisparityMap& disp, const std::string& path, int max_disp);
+
+// ===========================================================================
+// CSV benchmark output
+// ===========================================================================
+// Appends one row to `csv_path` (creates file + header if it doesn't exist).
+void append_benchmark_csv(const std::string& csv_path,
+                          const std::string& impl,
+                          const StereoParams& p,
+                          const TimerResult& t,
+                          double gops_per_frame);
 
 #endif  // PERCEPTION_CPU_H_

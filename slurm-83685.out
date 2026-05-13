@@ -1,0 +1,28 @@
+Starting at Mon May 11 17:25:15 PDT 2026
+
+make: 'main_cpu' is up to date.
+
+Output from main_cpu
+----------------
+
+====================================================
+  Stereo SAD — CPU baseline
+====================================================
+  Image size   : 480 x 640
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 5
+----------------------------------------------------
+  [CPU SAD]
+    Mean  : 353.849   ms  ±0.235 ms
+    Min   : 353.668   ms
+    FPS   : 2.826    
+  Accuracy (valid pixels only):
+    MAE         : 1.5294 px
+    Bad-px rate : 6.3725 %  (|err| > 1 px)
+----------------------------------------------------
+  Compute (approx): 0.8713 GOps/frame
+  Throughput      : 2.4623 GOps/s  (CPU, single-threaded)
+====================================================
+

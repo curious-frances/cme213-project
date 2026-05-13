@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// main_gpu.cu — Benchmarks all three GPU SAD kernels + CPU baseline.
-// ---------------------------------------------------------------------------
-
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -12,9 +8,9 @@
 
 struct RunOptions {
   StereoParams p;
-  bool        save_images  = false;
-  bool        run_cpu      = true;
-  std::string csv_path     = "";
+  bool        save_images = false;
+  bool        run_cpu     = true;
+  std::string csv_path    = "";
 };
 
 static void parse_args(int argc, char** argv, RunOptions& opt) {
@@ -28,8 +24,8 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
     if ((key == "--radius"   || key == "-r") && i+1<argc) { p.radius    = std::stoi(argv[++i]); continue; }
     if ((key == "--repeats"  || key == "-n") && i+1<argc) { p.repeats   = std::stoi(argv[++i]); continue; }
     if ((key == "--csv")                     && i+1<argc) { opt.csv_path = argv[++i];            continue; }
-    if (key == "--save-images")  { opt.save_images = true;  continue; }
-    if (key == "--no-cpu")       { opt.run_cpu     = false; continue; }
+    if (key == "--save-images") { opt.save_images = true;  continue; }
+    if (key == "--no-cpu")      { opt.run_cpu     = false; continue; }
     if (key == "--help" || key == "-h") {
       std::cout << "Usage: ./main_gpu [options]\n"
                 << "  --height   H   image height            (default 480)\n"
@@ -46,28 +42,25 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
     std::cerr << "Unknown argument: " << key << "\n"; std::exit(1);
   }
   CHECK(p.height > 0 && p.width > 0, "Image dimensions must be positive");
-  CHECK(p.radius > 0,  "Radius must be > 0");
+  CHECK(p.radius > 0,   "Radius must be > 0");
   CHECK(p.max_disp > 0, "max_disp must be > 0");
   CHECK(p.true_disp >= 0 && p.true_disp < p.max_disp, "true_disp out of range");
   CHECK(p.repeats > 0, "repeats must be > 0");
   CHECK(p.width > 2 * p.radius + p.max_disp, "Image too narrow");
-  CHECK(p.height > 2 * p.radius, "Image too short");
+  CHECK(p.height > 2 * p.radius,             "Image too short");
   CHECK(p.max_disp <= 128, "max_disp must be <= 128 for GPU kernels");
   CHECK(p.radius   <=   8, "radius must be <= 8 for smem kernel");
 }
 
-// Compute GOps/frame for the given params (2 ops per SAD element: abs + add)
 static double compute_gops(const StereoParams& p) {
   long patch   = (long)(2 * p.radius + 1) * (2 * p.radius + 1);
-  long valid_w = p.width  - 2 * p.radius - p.max_disp;
+  long valid_w = std::max(0L, (long)(p.width - 2 * p.radius - p.max_disp));
   long valid_h = p.height - 2 * p.radius;
-  if (valid_w < 0) valid_w = 0;
   return static_cast<double>(valid_h * valid_w * p.max_disp * patch * 2L) / 1e9;
 }
 
-static void print_gpu_result(const char* label, float mean_ms,
-                             double gops_frame) {
-  double fps       = (mean_ms > 0) ? 1000.0 / mean_ms : 0.0;
+static void print_gpu_result(const char* label, float mean_ms, double gops_frame) {
+  double fps        = (mean_ms > 0) ? 1000.0 / mean_ms : 0.0;
   double throughput = (mean_ms > 0) ? gops_frame / (mean_ms / 1e3) : 0.0;
   std::cout << "  [" << label << "]\n";
   std::cout << "    Mean  : " << mean_ms   << " ms\n";
@@ -100,7 +93,6 @@ int main(int argc, char** argv) {
   std::cout << "  Repeats      : " << p.repeats << "\n";
   std::cout << "----------------------------------------------------\n";
 
-  // Generate images
   Image left(p.height, p.width);
   Image right(p.height, p.width);
   generate_left_image(left);
@@ -120,7 +112,6 @@ int main(int argc, char** argv) {
 
   DisparityMap disp_out(p.height, p.width);
 
-  // ---- CPU baseline ----
   if (opt.run_cpu) {
     TimerResult t_cpu = time_sad_stereo_cpu(left, right, disp_out,
                                             p.max_disp, p.radius, p.repeats);
@@ -130,10 +121,8 @@ int main(int argc, char** argv) {
       append_benchmark_csv(opt.csv_path, "CPU", p, t_cpu, gops);
   }
 
-  // ---- GPU basic ----
   {
-    float ms = sad_stereo_gpu_basic(left, right, disp_out,
-                                    p.max_disp, p.radius, p.repeats);
+    float ms = sad_stereo_gpu_basic(left, right, disp_out, p.max_disp, p.radius, p.repeats);
     print_gpu_result("GPU basic", ms, gops);
     print_accuracy(disp_out, gt);
     if (opt.save_images) {
@@ -144,10 +133,8 @@ int main(int argc, char** argv) {
       append_benchmark_csv(opt.csv_path, "GPU_basic", p, gpu_ms_to_timer(ms), gops);
   }
 
-  // ---- GPU shared memory ----
   {
-    float ms = sad_stereo_gpu_smem(left, right, disp_out,
-                                   p.max_disp, p.radius, p.repeats);
+    float ms = sad_stereo_gpu_smem(left, right, disp_out, p.max_disp, p.radius, p.repeats);
     print_gpu_result("GPU smem", ms, gops);
     print_accuracy(disp_out, gt);
     if (opt.save_images) {
@@ -158,10 +145,8 @@ int main(int argc, char** argv) {
       append_benchmark_csv(opt.csv_path, "GPU_smem", p, gpu_ms_to_timer(ms), gops);
   }
 
-  // ---- GPU tiled ----
   {
-    float ms = sad_stereo_gpu_tiled(left, right, disp_out,
-                                    p.max_disp, p.radius, p.repeats);
+    float ms = sad_stereo_gpu_tiled(left, right, disp_out, p.max_disp, p.radius, p.repeats);
     print_gpu_result("GPU tiled", ms, gops);
     print_accuracy(disp_out, gt);
     if (opt.save_images) {

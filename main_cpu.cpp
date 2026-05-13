@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// main_cpu.cpp — Driver for the CPU stereo SAD baseline.
-// ---------------------------------------------------------------------------
-
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -44,15 +40,12 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
   }
 
   CHECK(p.height > 0 && p.width > 0, "Image dimensions must be positive");
-  CHECK(p.radius > 0,                  "Radius must be > 0");
-  CHECK(p.max_disp > 0,               "max_disp must be > 0");
-  CHECK(p.true_disp >= 0 && p.true_disp < p.max_disp,
-        "true_disp must be in [0, max_disp)");
+  CHECK(p.radius > 0,                 "Radius must be > 0");
+  CHECK(p.max_disp > 0,              "max_disp must be > 0");
+  CHECK(p.true_disp >= 0 && p.true_disp < p.max_disp, "true_disp must be in [0, max_disp)");
   CHECK(p.repeats > 0, "repeats must be > 0");
-  CHECK(p.width  > 2 * p.radius + p.max_disp,
-        "Image too narrow for given radius and max_disp");
-  CHECK(p.height > 2 * p.radius,
-        "Image too short for given radius");
+  CHECK(p.width  > 2 * p.radius + p.max_disp, "Image too narrow for given radius and max_disp");
+  CHECK(p.height > 2 * p.radius,              "Image too short for given radius");
 }
 
 static void run_case(const RunOptions& opt) {
@@ -74,12 +67,9 @@ static void run_case(const RunOptions& opt) {
     std::cout << "  Saved: left.pgm, right.pgm\n";
   }
 
-  // Warm-up
   sad_stereo_cpu(left, right, disp_out, p.max_disp, p.radius);
 
-  // Timed runs
-  TimerResult t = time_sad_stereo_cpu(left, right, disp_out,
-                                      p.max_disp, p.radius, p.repeats);
+  TimerResult t = time_sad_stereo_cpu(left, right, disp_out, p.max_disp, p.radius, p.repeats);
   print_timing_result(t, "CPU SAD");
   print_accuracy(disp_out, gt);
 
@@ -90,11 +80,9 @@ static void run_case(const RunOptions& opt) {
   }
 
   long patch   = static_cast<long>((2 * p.radius + 1)) * (2 * p.radius + 1);
-  long valid_w = p.width  - 2 * p.radius - p.max_disp;
+  long valid_w = std::max(0L, (long)(p.width  - 2 * p.radius - p.max_disp));
   long valid_h = p.height - 2 * p.radius;
-  if (valid_w < 0) valid_w = 0;
-  long ops     = valid_h * valid_w * p.max_disp * patch * 2L;
-  double gops  = static_cast<double>(ops) / 1e9;
+  double gops  = static_cast<double>(valid_h * valid_w * p.max_disp * patch * 2L) / 1e9;
   double tput  = (t.mean_ms > 0) ? gops / (t.mean_ms / 1e3) : 0.0;
   std::cout << "  Compute (approx): " << gops << " GOps/frame\n";
   std::cout << "  Throughput      : " << tput << " GOps/s  (CPU, single-threaded)\n";

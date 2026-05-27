@@ -4,6 +4,12 @@ CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -march=native
 NVCC       = nvcc
 NVCCFLAGS  = -std=c++17 -O2 -arch=sm_75
 
+NVC          = nvc++
+NVCFLAGS     = -O2 -tp=px -gpu=cuda12.3,cc75,sm_75 -cuda
+MPI_INCLUDES := $(filter -I%, $(shell mpicc --showme:compile 2>/dev/null))
+MPI_LIBDIR   := $(shell mpicc --showme:libdirs 2>/dev/null)
+MPI_LDFLAGS  := -L$(MPI_LIBDIR) -Wl,-rpath,$(MPI_LIBDIR) -lmpi
+
 GTEST_ROOT = ./googletest-main
 GTEST_DIR  = $(GTEST_ROOT)/googletest
 GTEST_INC  = $(GTEST_DIR)/include
@@ -19,7 +25,7 @@ CPPFLAGS = -isystem $(GTEST_INC)
 PERCEPTION_SRC = perception_cpu.cpp
 PERCEPTION_HDR = perception_cpu.h perception_common.h
 
-default: main_cpu main_gpu
+default: main_cpu main_gpu main_mpi
 
 perception_cpu.o: $(PERCEPTION_SRC) $(PERCEPTION_HDR)
 	$(CXX) $(CXXFLAGS) -c $(PERCEPTION_SRC) -o $@
@@ -38,6 +44,12 @@ main_gpu.o: main_gpu.cu perception_gpu.h $(PERCEPTION_HDR)
 
 main_gpu: main_gpu.o perception_gpu.o perception_cpu.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@
+
+main_mpi.o: main_mpi.cu perception_gpu.h $(PERCEPTION_HDR)
+	$(NVCC) $(NVCCFLAGS) $(MPI_INCLUDES) -c main_mpi.cu -o $@
+
+main_mpi: main_mpi.o perception_gpu.o perception_cpu.o
+	$(NVC) $(NVCFLAGS) $^ -o $@ $(MPI_LDFLAGS)
 
 gtest: gtest.a gtest_main.a
 
@@ -70,5 +82,10 @@ bench: main_cpu main_gpu
 	./main_cpu --height 480 --width 640 --disp 24 --max-disp 64 --radius 2 --repeats 10 --csv benchmark.csv
 	./main_gpu --height 480 --width 640 --disp 24 --max-disp 64 --radius 2 --repeats 10 --no-cpu --csv benchmark.csv
 
+run_mpi: main_mpi
+	mpirun -np 1 ./main_mpi --height 480 --width 640 --disp 24 --max-disp 64 --radius 2 --repeats 5
+	mpirun -np 2 ./main_mpi --height 480 --width 640 --disp 24 --max-disp 64 --radius 2 --repeats 5
+	mpirun -np 4 ./main_mpi --height 480 --width 640 --disp 24 --max-disp 64 --radius 2 --repeats 5
+
 clean:
-	rm -f main_cpu main_gpu test_cpu *.o *.a *.pgm *.csv
+	rm -f main_cpu main_gpu main_mpi test_cpu *.o *.a *.pgm *.csv

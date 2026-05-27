@@ -1,0 +1,151 @@
+Starting multi-GPU scaling at Wed May 27 16:02:02 PDT 2026
+Node: hpcc-gpu-5-1
+0, Quadro RTX 6000
+1, Quadro RTX 6000
+2, Quadro RTX 6000
+3, Quadro RTX 6000
+
+make: 'main_mpi' is up to date.
+=== Strong scaling: 480x640 (4 GPUs) ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.000962 ms
+  GPU kernel max : 0.44073 ms
+  Kernel wall    : 5.79142 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.121191 ms
+  Total comm     : 0.122153 ms
+  Comm fraction  : 2.06564 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.527654 ms
+  GPU kernel max : 0.242467 ms
+  Kernel wall    : 4.50934 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.224817 ms
+  Total comm     : 0.752471 ms
+  Comm fraction  : 14.3006 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~120
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.875656 ms
+  GPU kernel max : 0.129478 ms
+  Kernel wall    : 2.96465 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.362139 ms
+  Total comm     : 1.23779 ms
+  Comm fraction  : 29.4542 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+=== Larger image: 960x1280 (4 GPUs) ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.001042 ms
+  GPU kernel max : 1.74857 ms
+  Kernel wall    : 21.6672 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.427804 ms
+  Total comm     : 0.428846 ms
+  Comm fraction  : 1.94083 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.980285 ms
+  GPU kernel max : 0.905261 ms
+  Kernel wall    : 11.9555 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.669293 ms
+  Total comm     : 1.64958 ms
+  Comm fraction  : 12.1247 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.87407 ms
+  GPU kernel max : 0.463866 ms
+  Kernel wall    : 6.90252 ms  (barrier-to-barrier)
+  Gather (disp)  : 1.08532 ms
+  Total comm     : 2.95939 ms
+  Comm fraction  : 30.0083 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+Done at Wed May 27 16:02:07 PDT 2026

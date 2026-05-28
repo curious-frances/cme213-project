@@ -16,8 +16,10 @@
 
 struct MpiRunOptions {
     StereoParams p;
-    bool         verify   = true;
-    std::string  csv_path = "";
+    bool         verify     = true;
+    std::string  csv_path   = "";
+    std::string  left_path  = "";
+    std::string  right_path = "";
 };
 
 static void parse_args(int argc, char** argv, MpiRunOptions& opt) {
@@ -30,8 +32,10 @@ static void parse_args(int argc, char** argv, MpiRunOptions& opt) {
         if ((key == "--max-disp" || key == "-m") && i+1<argc) { p.max_disp  = std::stoi(argv[++i]); continue; }
         if ((key == "--radius"   || key == "-r") && i+1<argc) { p.radius    = std::stoi(argv[++i]); continue; }
         if ((key == "--repeats"  || key == "-n") && i+1<argc) { p.repeats   = std::stoi(argv[++i]); continue; }
-        if (key == "--no-verify")                              { opt.verify  = false;                 continue; }
-        if (key == "--csv"      && i+1<argc)                   { opt.csv_path = argv[++i];            continue; }
+        if (key == "--no-verify")                              { opt.verify     = false;      continue; }
+        if (key == "--csv"      && i+1<argc)                   { opt.csv_path  = argv[++i]; continue; }
+        if (key == "--left"     && i+1<argc)                   { opt.left_path  = argv[++i]; continue; }
+        if (key == "--right"    && i+1<argc)                   { opt.right_path = argv[++i]; continue; }
     }
 }
 
@@ -50,7 +54,18 @@ int main(int argc, char** argv) {
     MpiRunOptions opt;
     parse_args(argc, argv, opt);
     const StereoParams& p = opt.p;
-    const int H = p.height, W = p.width;
+    bool using_real = !opt.left_path.empty();
+
+    // Rank 0 determines actual image dimensions (from file or params), then broadcasts.
+    int bcast_dims[2] = {p.height, p.width};
+    if (rank == 0 && using_real) {
+        Image tmp_probe = load_pgm(opt.left_path);
+        bcast_dims[0] = tmp_probe.height;
+        bcast_dims[1] = tmp_probe.width;
+    }
+    MPI_Bcast(bcast_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
+    const int H = bcast_dims[0];
+    const int W = bcast_dims[1];
 
     if (nranks > H) {
         if (rank == 0)
@@ -60,14 +75,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // ---- Generate input images on rank 0 then broadcast ----
     std::vector<uint8_t> full_left(H * W, 0), full_right(H * W, 0);
     if (rank == 0) {
-        Image tmp_l(H, W), tmp_r(H, W);
-        generate_left_image(tmp_l);
-        generate_right_image(tmp_l, tmp_r, p.true_disp);
-        std::copy(tmp_l.data, tmp_l.data + H * W, full_left.data());
-        std::copy(tmp_r.data, tmp_r.data + H * W, full_right.data());
+        if (using_real) {
+            Image tmp_l = load_pgm(opt.left_path);
+            Image tmp_r = load_pgm(opt.right_path);
+            CHECK(tmp_l.height == H && tmp_l.width == W, "left/right PGM size mismatch");
+            CHECK(tmp_r.height == H && tmp_r.width == W, "right PGM size does not match left");
+            std::copy(tmp_l.data, tmp_l.data + H * W, full_left.data());
+            std::copy(tmp_r.data, tmp_r.data + H * W, full_right.data());
+        } else {
+            Image tmp_l(H, W), tmp_r(H, W);
+            generate_left_image(tmp_l);
+            generate_right_image(tmp_l, tmp_r, p.true_disp);
+            std::copy(tmp_l.data, tmp_l.data + H * W, full_left.data());
+            std::copy(tmp_r.data, tmp_r.data + H * W, full_right.data());
+        }
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -160,7 +183,7 @@ int main(int argc, char** argv) {
                   << 100.0 * t_comm_total / (t_comm_total + t_wall_ms) << " %\n";
         std::cout << "----------------------------------------------------\n";
 
-        if (opt.verify) {
+        if (opt.verify && !using_real) {
             DisparityMap gt(H, W), combined(H, W);
             generate_ground_truth(gt, p.true_disp, p.radius, p.max_disp);
             std::copy(full_disp.begin(), full_disp.end(), combined.data);

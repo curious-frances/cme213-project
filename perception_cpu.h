@@ -37,6 +37,7 @@ void print_timing_result(const TimerResult& t, const char* label);
 void print_accuracy(const DisparityMap& estimated, const DisparityMap& gt);
 
 void save_pgm(const Image& img, const std::string& path);
+Image load_pgm(const std::string& path);
 void save_disparity_pgm(const DisparityMap& disp, const std::string& path, int max_disp);
 
 void append_benchmark_csv(const std::string&  csv_path,

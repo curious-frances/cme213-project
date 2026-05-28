@@ -11,6 +11,8 @@ struct RunOptions {
   bool        save_images = false;
   bool        run_cpu     = true;
   std::string csv_path    = "";
+  std::string left_path   = "";
+  std::string right_path  = "";
 };
 
 static void parse_args(int argc, char** argv, RunOptions& opt) {
@@ -23,33 +25,41 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
     if ((key == "--max-disp" || key == "-m") && i+1<argc) { p.max_disp  = std::stoi(argv[++i]); continue; }
     if ((key == "--radius"   || key == "-r") && i+1<argc) { p.radius    = std::stoi(argv[++i]); continue; }
     if ((key == "--repeats"  || key == "-n") && i+1<argc) { p.repeats   = std::stoi(argv[++i]); continue; }
-    if ((key == "--csv")                     && i+1<argc) { opt.csv_path = argv[++i];            continue; }
+    if ((key == "--csv")   && i+1<argc) { opt.csv_path   = argv[++i]; continue; }
+    if ((key == "--left")  && i+1<argc) { opt.left_path  = argv[++i]; continue; }
+    if ((key == "--right") && i+1<argc) { opt.right_path = argv[++i]; continue; }
     if (key == "--save-images") { opt.save_images = true;  continue; }
     if (key == "--no-cpu")      { opt.run_cpu     = false; continue; }
     if (key == "--help" || key == "-h") {
       std::cout << "Usage: ./main_gpu [options]\n"
-                << "  --height   H   image height            (default 480)\n"
-                << "  --width    W   image width             (default 640)\n"
-                << "  --disp     D   true disparity (GT)     (default 24)\n"
-                << "  --max-disp MD  disparity search range  (default 64)\n"
-                << "  --radius   R   patch half-size         (default 2)\n"
-                << "  --repeats  N   timing repetitions      (default 5)\n"
-                << "  --save-images  write left/right/disp PGMs\n"
-                << "  --no-cpu       skip CPU baseline\n"
-                << "  --csv PATH     append benchmark rows to CSV\n";
+                << "  --height   H     image height            (default 480, ignored with --left)\n"
+                << "  --width    W     image width             (default 640, ignored with --left)\n"
+                << "  --disp     D     true disparity (GT)     (default 24, ignored with --left)\n"
+                << "  --max-disp MD    disparity search range  (default 64)\n"
+                << "  --radius   R     patch half-size         (default 2)\n"
+                << "  --repeats  N     timing repetitions      (default 5)\n"
+                << "  --left     PATH  load left image from P5 PGM\n"
+                << "  --right    PATH  load right image from P5 PGM\n"
+                << "  --save-images    write left/right/disp PGMs\n"
+                << "  --no-cpu         skip CPU baseline\n"
+                << "  --csv PATH       append benchmark rows to CSV\n";
       std::exit(0);
     }
     std::cerr << "Unknown argument: " << key << "\n"; std::exit(1);
   }
-  CHECK(p.height > 0 && p.width > 0, "Image dimensions must be positive");
-  CHECK(p.radius > 0,   "Radius must be > 0");
-  CHECK(p.max_disp > 0, "max_disp must be > 0");
-  CHECK(p.true_disp >= 0 && p.true_disp < p.max_disp, "true_disp out of range");
-  CHECK(p.repeats > 0, "repeats must be > 0");
-  CHECK(p.width > 2 * p.radius + p.max_disp, "Image too narrow");
-  CHECK(p.height > 2 * p.radius,             "Image too short");
+  CHECK(p.radius > 0,      "Radius must be > 0");
+  CHECK(p.max_disp > 0,    "max_disp must be > 0");
+  CHECK(p.repeats > 0,     "repeats must be > 0");
   CHECK(p.max_disp <= 128, "max_disp must be <= 128 for GPU kernels");
   CHECK(p.radius   <=   8, "radius must be <= 8 for smem kernel");
+  bool using_real = !opt.left_path.empty();
+  CHECK(!using_real || !opt.right_path.empty(), "--left requires --right");
+  if (!using_real) {
+    CHECK(p.height > 0 && p.width > 0, "Image dimensions must be positive");
+    CHECK(p.true_disp >= 0 && p.true_disp < p.max_disp, "true_disp out of range");
+    CHECK(p.width  > 2 * p.radius + p.max_disp, "Image too narrow");
+    CHECK(p.height > 2 * p.radius,              "Image too short");
+  }
 }
 
 static double compute_gops(const StereoParams& p) {
@@ -82,6 +92,21 @@ int main(int argc, char** argv) {
   parse_args(argc, argv, opt);
   const StereoParams& p = opt.p;
 
+  bool using_real = !opt.left_path.empty();
+  Image left  = using_real ? load_pgm(opt.left_path)  : Image(p.height, p.width);
+  Image right = using_real ? load_pgm(opt.right_path) : Image(p.height, p.width);
+  if (!using_real) {
+    generate_left_image(left);
+    generate_right_image(left, right, p.true_disp);
+  } else {
+    CHECK(left.height == right.height && left.width == right.width,
+          "left and right PGMs must have the same dimensions");
+    opt.p.height = left.height;
+    opt.p.width  = left.width;
+    CHECK(p.width  > 2 * p.radius + p.max_disp, "Image too narrow for given radius/max_disp");
+    CHECK(p.height > 2 * p.radius,              "Image too short for given radius");
+  }
+
   std::cout << "\n====================================================\n";
   std::cout << "  Stereo SAD — GPU benchmark\n";
   std::cout << "====================================================\n";
@@ -89,17 +114,15 @@ int main(int argc, char** argv) {
   std::cout << "  Patch radius : " << p.radius
             << "  (patch = " << (2*p.radius+1) << "x" << (2*p.radius+1) << ")\n";
   std::cout << "  Max disparity: " << p.max_disp << "\n";
-  std::cout << "  True disparity (GT): " << p.true_disp << "\n";
+  if (!using_real)
+    std::cout << "  True disparity (GT): " << p.true_disp << "\n";
   std::cout << "  Repeats      : " << p.repeats << "\n";
   std::cout << "----------------------------------------------------\n";
 
-  Image left(p.height, p.width);
-  Image right(p.height, p.width);
-  generate_left_image(left);
-  generate_right_image(left, right, p.true_disp);
-
+  bool have_gt = !using_real;
   DisparityMap gt(p.height, p.width);
-  generate_ground_truth(gt, p.true_disp, p.radius, p.max_disp);
+  if (have_gt)
+    generate_ground_truth(gt, p.true_disp, p.radius, p.max_disp);
 
   if (opt.save_images) {
     save_pgm(left,  "left.pgm");
@@ -116,7 +139,7 @@ int main(int argc, char** argv) {
     TimerResult t_cpu = time_sad_stereo_cpu(left, right, disp_out,
                                             p.max_disp, p.radius, p.repeats);
     print_timing_result(t_cpu, "CPU");
-    print_accuracy(disp_out, gt);
+    if (have_gt) print_accuracy(disp_out, gt);
     if (!opt.csv_path.empty())
       append_benchmark_csv(opt.csv_path, "CPU", p, t_cpu, gops);
   }
@@ -124,7 +147,7 @@ int main(int argc, char** argv) {
   {
     float ms = sad_stereo_gpu_basic(left, right, disp_out, p.max_disp, p.radius, p.repeats);
     print_gpu_result("GPU basic", ms, gops);
-    print_accuracy(disp_out, gt);
+    if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_basic.pgm", p.max_disp);
       std::cout << "  Saved: disp_basic.pgm\n";
@@ -136,7 +159,7 @@ int main(int argc, char** argv) {
   {
     float ms = sad_stereo_gpu_smem(left, right, disp_out, p.max_disp, p.radius, p.repeats);
     print_gpu_result("GPU smem", ms, gops);
-    print_accuracy(disp_out, gt);
+    if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_smem.pgm", p.max_disp);
       std::cout << "  Saved: disp_smem.pgm\n";
@@ -148,7 +171,7 @@ int main(int argc, char** argv) {
   {
     float ms = sad_stereo_gpu_tiled(left, right, disp_out, p.max_disp, p.radius, p.repeats);
     print_gpu_result("GPU tiled", ms, gops);
-    print_accuracy(disp_out, gt);
+    if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_tiled.pgm", p.max_disp);
       save_disparity_pgm(gt,       "disp_gt.pgm",    p.max_disp);

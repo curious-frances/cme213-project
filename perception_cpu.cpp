@@ -205,6 +205,29 @@ void print_accuracy(const DisparityMap& estimated, const DisparityMap& gt) {
   std::cout << "----------------------------------------------------\n";
 }
 
+Image load_pgm(const std::string& path) {
+  std::ifstream f(path, std::ios::binary);
+  CHECK(f.is_open(), ("load_pgm: cannot open " + path).c_str());
+
+  std::string magic;
+  f >> magic;
+  CHECK(magic == "P5", ("load_pgm: not a binary (P5) PGM: " + path).c_str());
+
+  // Skip comments
+  while (f.peek() == '\n' || f.peek() == '\r' || f.peek() == ' ') f.get();
+  while (f.peek() == '#') { std::string line; std::getline(f, line); }
+
+  int w, h, maxval;
+  f >> w >> h >> maxval;
+  CHECK(maxval == 255, ("load_pgm: only 8-bit PGM (maxval 255) supported: " + path).c_str());
+  f.get();  // consume the single whitespace after maxval
+
+  Image img(h, w);
+  f.read(reinterpret_cast<char*>(img.data), img.size());
+  CHECK(f.good(), ("load_pgm: read error in " + path).c_str());
+  return img;
+}
+
 void save_pgm(const Image& img, const std::string& path) {
   std::ofstream f(path, std::ios::binary);
   CHECK(f.is_open(), ("save_pgm: cannot open " + path).c_str());

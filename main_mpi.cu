@@ -1,6 +1,3 @@
-// MPI + CUDA driver for distributed stereo SAD disparity estimation.
-// Each MPI rank owns a horizontal slab of rows and runs the tiled GPU kernel.
-// Input images are broadcast from rank 0; results are gathered back.
 #include <mpi.h>
 #include <cuda_runtime.h>
 #include <algorithm>
@@ -45,7 +42,6 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nranks);
 
-    // Bind each rank to its own GPU (wraps around if nranks > num_devices)
     int num_devices = 0;
     cudaGetDeviceCount(&num_devices);
     if (num_devices > 0)
@@ -56,7 +52,6 @@ int main(int argc, char** argv) {
     const StereoParams& p = opt.p;
     bool using_real = !opt.left_path.empty();
 
-    // Rank 0 determines actual image dimensions (from file or params), then broadcasts.
     int bcast_dims[2] = {p.height, p.width};
     if (rank == 0 && using_real) {
         Image tmp_probe = load_pgm(opt.left_path);
@@ -99,23 +94,17 @@ int main(int argc, char** argv) {
     MPI_Bcast(full_right.data(), H * W, MPI_UINT8_T, 0, MPI_COMM_WORLD);
     double t_bcast = MPI_Wtime() - t0_bcast;
 
-    // ---- 1-D row decomposition ----
-    // Distribute H rows as evenly as possible; first `remainder` ranks get +1 row.
     int base_rows  = H / nranks;
     int remainder  = H % nranks;
     int row_start  = rank * base_rows + std::min(rank, remainder);
     int local_rows = base_rows + (rank < remainder ? 1 : 0);
     int row_end    = row_start + local_rows;
 
-    // Halo: each rank needs `radius` rows above and below its slab so the SAD
-    // patch never reads out-of-bounds.  The kernel's at_border check then
-    // correctly marks those halo rows as 0; we do not gather them.
     int halo_start = std::max(0, row_start - p.radius);
     int halo_end   = std::min(H, row_end   + p.radius);
     int halo_top   = row_start - halo_start;  // local index of first owned row
     int slab_H     = halo_end - halo_start;
 
-    // Extract slab (with halos) from the broadcast buffer — no extra MPI needed.
     Image slab_l(slab_H, W), slab_r(slab_H, W);
     std::copy(full_left.data()  + halo_start * W,
               full_left.data()  + halo_end   * W,
@@ -124,7 +113,6 @@ int main(int argc, char** argv) {
               full_right.data() + halo_end   * W,
               slab_r.data);
 
-    // ---- GPU kernel on local slab ----
     DisparityMap slab_disp(slab_H, W);
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -136,12 +124,9 @@ int main(int argc, char** argv) {
     MPI_Barrier(MPI_COMM_WORLD);
     double t_kernel_wall = MPI_Wtime() - t0_kernel;
 
-    // Maximum kernel time across ranks (the actual bottleneck)
     float max_gpu_ms = 0.0f;
     MPI_Reduce(&local_gpu_ms, &max_gpu_ms, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
 
-    // ---- Gather disparity slabs to rank 0 ----
-    // Build non-overlapping send counts and displacements (in MPI_INT units).
     std::vector<int> sendcounts(nranks), displs(nranks);
     displs[0] = 0;
     for (int i = 0; i < nranks; ++i) {
@@ -160,7 +145,6 @@ int main(int argc, char** argv) {
                 0, MPI_COMM_WORLD);
     double t_gather = MPI_Wtime() - t0_gather;
 
-    // ---- Report on rank 0 ----
     if (rank == 0) {
         double t_comm_total = (t_bcast + t_gather) * 1e3;  // ms
         double t_wall_ms    = t_kernel_wall * 1e3;

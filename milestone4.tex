@@ -35,185 +35,167 @@ Real-Time Multi-Camera 3D Perception and Tracking for Robotics}
 
 \section{Summary of Progress}
 
-Since Milestone 3, we have completed a full MPI+CUDA distributed implementation of
-stereo SAD disparity estimation. The distributed version partitions image rows across
-MPI ranks, assigns each rank to a separate GPU, and gathers results back to rank~0.
-All three GPU kernels from Milestone~3 (basic, shared-memory, and tiled) remain
-unchanged; the tiled kernel is used in the distributed driver.
+Since Milestone 3, we extended our stereo SAD implementation from a single-GPU CUDA
+program to a distributed MPI+CUDA version. The new version splits the input image by
+rows across MPI ranks, assigns each rank to a GPU, runs the tiled SAD kernel on each
+local image slab, and gathers the final disparity map back to rank~0.
 
-The complete implementation includes \texttt{main\_mpi.cu} (MPI host driver), an
-updated \texttt{Makefile} with a dedicated \texttt{main\_mpi} target that compiles
-CUDA+MPI code, and a SLURM batch script \texttt{run\_mpi.sh} for the scaling study.
-Correctness has been verified across 1, 2, and 4 ranks on two image sizes, and
-performance measurements have been collected on a node with four Quadro~RTX~6000
-GPUs.
+The main additions are a \texttt{main\_mpi.cu}, which handles the MPI driver logic and a script for running the scaling experiments. We kept the GPU kernels from Milestone 3
+unchanged, and the MPI driver currently uses the tiled kernel because it was the
+fastest version from our earlier benchmarks.
 
-We have also added support for loading real stereo image pairs from P5~PGM files
-(Section~\ref{sec:realimages}), enabling the full pipeline to be exercised on
-standard benchmarks such as Middlebury and KITTI.
+We tested the distributed version on 1, 2, and 4 ranks for two image sizes. In all
+cases, the gathered disparity map matched the CPU reference on the synthetic stereo
+pair. We also collected strong-scaling results on a four-GPU node. In addition, we added support for loading real stereo image pairs from
+PGM files, which lets us run the same pipeline on standard stereo datasets instead
+of only synthetic images.
 
-Object tracking remains not yet started and is deferred to the final report.
+We haven't done object tracking yet, so that is one feature of the final project that we still have to implement for the final
+report.
 
 \section{Distributed Algorithm and Data Decomposition}
 
-We use \textbf{1-D row partitioning}: the $H$ image rows are divided as evenly as
-possible among $P$ ranks, with rank~$i$ owning rows $[r_i, r_i + h_i)$ where
-$h_i = \lfloor H/P \rfloor + [i < H \bmod P]$.
+We use a simple 1-D row decomposition. If the image has height $H$ and we run with
+$P$ MPI ranks, each rank gets roughly $H/P$ rows. Rank~$i$ owns rows
+$[r_i, r_i + h_i)$, where
+\[
+h_i = \lfloor H/P \rfloor + [i < H \bmod P].
+\]
+This keeps the work balanced even when the image height is not exactly divisible by
+the number of ranks.
 
-\textbf{Halo exchange.} The SAD kernel needs a $(2R+1)\times(2R+1)$ patch centred
-on each output pixel, so rank~$i$ requires \texttt{radius} rows above and below its
-owned slab to compute correct disparities at the slab boundary. Rather than a
-point-to-point halo exchange, we broadcast the full image to all ranks (see
-Section~3), so each rank simply extracts its slab $[r_i - R,\, r_i + h_i + R)$
-(clamped to image bounds) from the broadcast buffer.  The kernel's
-\texttt{at\_border} check then marks the halo rows (local rows $[0, R)$ and
-$[h_i + R, \text{slab\_H})$) as invalid; we do not include those rows in the
-\texttt{MPI\_Gatherv} send buffer.
+The SAD kernel needs a square patch around each output pixel, so rows near the edge
+of a rank's local slab depend on neighboring rows. To handle this, each rank includes
+a small halo of \texttt{radius} rows above and below its owned region. For now, we use
+a full-image broadcast instead of a point-to-point halo exchange. This means every
+rank receives the whole left and right image, then locally extracts the rows it needs,
+including halo rows. Only the owned rows are gathered back to rank~0.
 
-\textbf{Alternatives considered.} A 2-D decomposition would reduce the surface-to-volume
-ratio of halo data, but for our specific kernel (columns are independent for a
-fixed disparity) a 2-D partition gives no benefit---the right-image search window
-already spans the full column range within a block. We also considered using
-\texttt{MPI\_Scatterv} to send only the required slab rows to each rank, which
-would reduce broadcast volume from $O(H \times W)$ to $O(h_i \times W + R \times W)$
-per rank. For our image sizes ($< 5$~MB), this trade-off is not worthwhile; for
-larger images we would switch to \texttt{MPI\_Scatterv} plus \texttt{MPI\_Sendrecv}
-halo exchange.
+This is not the most communication-efficient approach, but it keeps the MPI logic
+simple and was reasonable for the image sizes we tested. A better version for larger
+images would use \texttt{MPI\_Scatterv} to send each rank only its needed rows, plus
+\texttt{MPI\_Sendrecv} to exchange halo rows with neighboring ranks.
+
+We also considered a 2-D decomposition, but it does not help as much for this kernel.
+The disparity search is horizontal, and each output pixel already searches along the
+row direction. Splitting columns would make the horizontal search window harder to
+handle. Because of that, row partitioning is the cleaner choice for this milestone.
 
 \section{MPI Implementation}
 
-We use two MPI collective operations:
+The MPI implementation uses two main collective operations. First, rank~0 creates or
+loads the stereo image pair and broadcasts the image data to all ranks with
+\texttt{MPI\_Bcast}. Each rank then extracts its local slab and copies it to its GPU.
+After the CUDA kernel finishes, each rank copies its local disparity slab back to the
+host, and \texttt{MPI\_Gatherv} collects the slabs into the full output disparity map
+on rank~0.
 
-\textbf{Input broadcast.} After rank~0 generates the synthetic stereo pair,
-\texttt{MPI\_Bcast} sends both images to all ranks. This is the simplest pattern and
-is appropriate while the image data fits comfortably in memory. For the 480$\times$640
-images used in benchmarking, broadcast latency is $<0.1$~ms (single GPU, same
-node) to $<1$~ms (4 GPUs), consistent with the $\approx$300~KB payload on a PCIe
-or NVLink bus.
+We use \texttt{MPI\_Gatherv} instead of \texttt{MPI\_Gather} because different ranks
+can own slightly different numbers of rows when $H$ is not divisible by $P$. The
+send counts and displacements are computed from the row partitioning.
 
-\textbf{Result gather.} After the GPU kernel completes, \texttt{MPI\_Gatherv} collects
-each rank's $h_i \times W$ disparity values to rank~0 using precomputed
-\texttt{sendcounts} and \texttt{displs} arrays. \texttt{MPI\_Gatherv} (rather than
-\texttt{MPI\_Gather}) handles the case where rows do not divide evenly.
+There is currently no overlap between communication and computation. The broadcast
+finishes before the CUDA kernel starts, and the gather starts only after all ranks
+finish their GPU work. This makes the implementation easier to reason about, but it
+also means communication overhead is exposed directly in the timing. In the final
+version, it would be better to overlap communication with computation, especially for
+streaming frames.
 
-There is currently \textbf{no overlap of communication and computation}: the broadcast
-completes before any kernel launches, and the gather begins only after all ranks have
-synchronized via \texttt{MPI\_Barrier}. Overlapping computation with the gather is
-possible (pipelining partial results while the kernel continues on the next slab) but
-not yet implemented.
+The current version also stages MPI transfers through host memory. We do not use
+CUDA-aware MPI. For the sizes tested here, this was a reasonable tradeoff because the
+images are small, and the added complexity of direct GPU-buffer communication was not
+worth it yet.
 
-\textbf{GPU buffer interaction.} MPI transfers stage through host memory. The
-broadcast populates host vectors; each rank then calls \texttt{cudaMemcpy}
-(host$\to$device) inside the \texttt{GpuBuffers} constructor. After the kernel,
-\texttt{cudaMemcpy} (device$\to$host) returns the disparity slab to a host
-\texttt{DisparityMap}, which is the send buffer for \texttt{MPI\_Gatherv}. We do not
-use CUDA-aware MPI; the additional complexity was not justified for our image sizes.
+\section{CUDA Integration}
 
-\section{C++ Wrapper and Integration with CUDA}
+Each MPI rank selects a GPU using
+\[
+\texttt{cudaSetDevice(rank \% num\_devices)}.
+\]
+On the four-GPU node, this assigns ranks 0--3 to four separate GPUs.
 
-\textbf{Device selection.} At startup each rank calls
-\texttt{cudaGetDeviceCount(\&num\_devices)} and \texttt{cudaSetDevice(rank \% num\_devices)}.
-With four GPUs and four ranks, each rank is pinned to a distinct device.
+The existing \texttt{GpuBuffers} wrapper from Milestone 3 is reused. The only
+difference is that each rank now allocates buffers for its local slab rather than the
+full image. This means memory use per GPU decreases as we add ranks.
 
-\textbf{Memory management.} The existing \texttt{GpuBuffers} RAII struct (Milestone~3)
-is reused without modification. It allocates device memory proportional to the slab
-height rather than the full image height, since each rank passes a slab-sized
-\texttt{Image} to \texttt{sad\_stereo\_gpu\_tiled}.
+No changes were needed inside the CUDA kernels. Each kernel already accepts an image
+with arbitrary height and handles border pixels internally. For MPI, this works out
+nicely because the halo rows can be passed into the kernel as part of the local slab,
+and then discarded before the gather.
 
-\textbf{Kernel compatibility.} No changes were required to any of the three GPU kernels.
-Each kernel accepts an arbitrary-height image and independently marks border rows
-as invalid. When a rank's slab includes halo rows, those rows are computed and
-discarded, which is exactly the semantics we need.
-
-\textbf{Timing.} Within \texttt{sad\_stereo\_gpu\_tiled}, CUDA events measure the mean
-kernel execution time over \texttt{repeats} invocations (excluding one warmup run).
-For the MPI driver we additionally record \texttt{MPI\_Wtime} barriers around the
-full kernel call and around each collective, so we can separate computation and
-communication latency. We use \texttt{MPI\_Reduce(MPI\_MAX)} to report the maximum
-kernel time across all ranks.
+For timing, the CUDA kernel still uses CUDA events. In the MPI driver, we also use
+\texttt{MPI\_Wtime} around the broadcast, kernel call, and gather. Since distributed
+runtime is limited by the slowest rank, we report the maximum kernel time across ranks
+using \texttt{MPI\_Reduce} with \texttt{MPI\_MAX}.
 
 \section{Real Stereo Image Support}
 \label{sec:realimages}
 
-All prior milestones used a synthetic stereo pair generated by
-\texttt{generate\_left\_image} (a sinusoidal pattern) and
-\texttt{generate\_right\_image} (a constant horizontal shift of \texttt{true\_disp}
-pixels). This is convenient for ground-truth verification but does not reflect the
-texture statistics or occlusion patterns of real scenes.
+Until this milestone, our tests used a synthetic stereo pair. The left image was a
+sinusoidal pattern, and the right image was generated by shifting the left image by a
+known constant disparity. This was useful for correctness testing because the true
+disparity was known everywhere, but it is not representative of real stereo data.
 
-\textbf{Implementation.} We added a \texttt{load\_pgm} function to
-\texttt{perception\_cpu.cpp} that reads an 8-bit binary (P5) PGM file and returns an
-\texttt{Image} object. The function parses the standard PGM header, skips comment
-lines, validates that \texttt{maxval = 255}, and reads the binary pixel data directly
-into the existing \texttt{pixel\_t} buffer. No third-party image library is required.
+We added a \texttt{load\_pgm} function that reads 8-bit binary PGM images. The parser
+handles the P5 header, skips comment lines, checks that \texttt{maxval = 255}, and
+loads the binary pixel data into the existing \texttt{Image} format. This keeps the
+image-loading code simple and avoids adding another image library dependency.
 
-Both \texttt{main\_gpu} and \texttt{main\_mpi} now accept \texttt{-{}-left PATH} and
-\texttt{-{}-right PATH} flags. When these are provided:
-\begin{itemize}
-  \item The synthetic generator is bypassed; images are loaded from file instead.
-  \item Image dimensions are taken from the PGM header, overriding any
-        \texttt{-{}-height}/\texttt{-{}-width} command-line values.
-  \item Accuracy reporting (\texttt{print\_accuracy}) is silently skipped because
-        pixel-accurate ground-truth disparity is not available without a separate
-        GT file.
-\end{itemize}
+Both \texttt{main\_gpu} and \texttt{main\_mpi} now support
+\texttt{-{}-left PATH} and \texttt{-{}-right PATH}. When these flags are provided,
+the program loads the stereo pair from disk instead of generating a synthetic pair.
+The image width and height are taken from the PGM header, so the command-line height
+and width are ignored. Since we do not currently load a ground-truth disparity file,
+the accuracy printout is skipped for real images.
 
-In the MPI driver specifically, rank~0 loads the images and then broadcasts the
-actual width and height (a 2-element \texttt{MPI\_Bcast} before the pixel broadcast)
-so that all ranks can allocate correctly-sized buffers. The rest of the MPI pipeline
-(slab decomposition, halo extraction, kernel launch, \texttt{MPI\_Gatherv}) is
-unchanged.
+In the MPI version, rank~0 loads the image dimensions and pixel data, broadcasts the
+dimensions first, and then broadcasts the image buffers. After that, the rest of the
+pipeline is the same as for synthetic images: row decomposition, halo extraction,
+CUDA kernel launch, and \texttt{MPI\_Gatherv}.
 
-\textbf{Recommended datasets.} All standard stereo benchmarks distribute
-\emph{rectified} image pairs, where disparity is a pure horizontal pixel shift---the
-same assumption made by our SAD kernel.
-\begin{itemize}
-  \item \textbf{Middlebury Stereo 2014}~\citep{middlebury2014}: 33 indoor scenes at
-        up to $3000\times2000$ resolution, with high-quality structured-light
-        ground truth. Typical $D_\text{max}$ is 128--256 pixels. Images are
-        distributed as PNG and can be converted to PGM with
-        \texttt{convert left.png -depth 8 gray:left.pgm} (ImageMagick).
-  \item \textbf{KITTI Stereo 2015}~\citep{kitti2015}: 200 outdoor driving scenes
-        at $1242\times375$, with sparse LiDAR ground truth. More representative
-        of the illumination variation and reflective surfaces found in robotic
-        perception.
-  \item \textbf{ETH3D}~\citep{eth3d}: higher-accuracy laser-scanner ground truth
-        at moderate resolution ($\approx920\times640$), useful for sub-pixel
-        accuracy analysis.
-\end{itemize}
+For future testing, the most useful datasets are Middlebury, KITTI, and ETH3D. These
+datasets provide rectified stereo pairs, which match the horizontal-disparity
+assumption used by our SAD implementation. Middlebury is useful for high-resolution
+indoor scenes, KITTI is more representative of outdoor robotic perception, and ETH3D
+has accurate ground truth at moderate image sizes.
 
 \section{Correctness Testing}
 
-We verify the distributed output against the CPU ground truth on two image sizes
-(480$\times$640 and 960$\times$1280) and across 1, 2, and 4 ranks, using the same
-synthetic stereo pair as Milestone~3 (true disparity $d^* = 24$, $D_\text{max} = 64$,
-$R = 2$). In all twelve configurations, the gathered disparity map achieves
-MAE$\;=\;0.000$~px and bad-pixel rate$\;=\;0.00\%$. This confirms that the halo
-logic is correct: boundary rows are not double-counted or dropped, and the
-at-border masking in the kernel correctly handles both global image boundaries (on
-the first and last rank) and local slab boundaries (on middle ranks, where halo rows
-are excluded from the gather).
+We tested the distributed implementation against the CPU reference using the same
+synthetic stereo setup as Milestone 3. The true disparity was fixed at
+$d^* = 24$, with $D_{\max}=64$ and patch radius $R=2$.
+
+We ran the tests on two image sizes, $480 \times 640$ and $960 \times 1280$, using
+1, 2, and 4 MPI ranks. In all cases, the final gathered disparity map had
+\[
+\text{MAE} = 0.000 \text{ px}
+\]
+and a bad-pixel rate of
+\[
+0.00\%.
+\]
+This confirms that the row partitioning and halo handling are correct. In particular,
+the gather does not drop or duplicate rows, and the kernel's border handling works
+both at the true image boundary and at local slab boundaries.
 
 \section{Performance, Scaling, and Profiling}
 
-Benchmarks were collected on a single node (\texttt{hpcc-gpu-5-1}) with four
-Quadro~RTX~6000 GPUs (24~GB VRAM each, sm\_75), using SLURM with
-\texttt{-{}-gres gpu:4} and \texttt{-{}-ntasks=4}. Each rank was bound to a
-distinct GPU via \texttt{cudaSetDevice(rank~\%~4)}. All timings are mean over
-10~repeats.
+We benchmarked the MPI+CUDA version on a single node, \texttt{hpcc-gpu-5-1}, with
+four Quadro RTX~6000 GPUs. We used SLURM with \texttt{-{}-gres gpu:4} and
+\texttt{-{}-ntasks=4}. Each rank was assigned to a separate GPU. All timings are
+averaged over 10 repeats.
 
 \subsection{Strong Scaling Results}
 
-Tables~\ref{tab:scale480} and~\ref{tab:scale960} report the strong scaling study
-at 480$\times$640 and 960$\times$1280 respectively. ``Kernel max'' is the maximum
-CUDA-event-measured kernel time across all ranks; ``Wall'' is the barrier-to-barrier
-wall time including all 10 timed runs plus H2D/D2H transfers; ``Comm'' is the sum
-of \texttt{MPI\_Bcast} and \texttt{MPI\_Gatherv} latencies; ``Speedup'' and
-``Efficiency'' are computed on wall time.
+Tables~\ref{tab:scale480} and~\ref{tab:scale960} show the strong-scaling results for
+the two image sizes. ``Kernel max'' is the maximum CUDA kernel time across all ranks.
+``Wall'' is the total barrier-to-barrier time, including the repeated kernel launches
+and host-device transfers. ``Comm'' is the measured MPI broadcast plus gather time.
+Speedup and efficiency are computed using wall time.
 
 \begin{table}[H]
 \centering
-\caption{Strong scaling, 480$\times$640, $D_\text{max}=64$, $R=2$, 4$\times$ Quadro RTX~6000.}
+\caption{Strong scaling for a $480\times640$ image with $D_\text{max}=64$ and $R=2$ on 4 Quadro RTX~6000 GPUs.}
 \label{tab:scale480}
 \begin{tabular}{rrrrrrr}
 \toprule
@@ -228,7 +210,7 @@ Ranks & Rows/rank & Kernel max (ms) & Wall (ms) & Comm (ms) & Speedup & Efficien
 
 \begin{table}[H]
 \centering
-\caption{Strong scaling, 960$\times$1280, $D_\text{max}=64$, $R=2$, 4$\times$ Quadro RTX~6000.}
+\caption{Strong scaling for a $960\times1280$ image with $D_\text{max}=64$ and $R=2$ on 4 Quadro RTX~6000 GPUs.}
 \label{tab:scale960}
 \begin{tabular}{rrrrrrr}
 \toprule
@@ -241,85 +223,113 @@ Ranks & Rows/rank & Kernel max (ms) & Wall (ms) & Comm (ms) & Speedup & Efficien
 \end{tabular}
 \end{table}
 
-\subsection{Computation vs.\ Communication Breakdown}
+\subsection{Computation vs. Communication}
 
-The ``wall'' time is dominated by host--device data transfer and the kernel itself.
-With $N=10$ repeats plus one warmup, the wall time is approximately
-$T_\text{wall} \approx 11 \cdot T_\text{kernel} + T_\text{H2D} + T_\text{D2H}$.
-For a single rank at 480$\times$640, this is $11 \times 0.441 + T_\text{H2D} + T_\text{D2H}
-\approx 4.85 + 0.93~\text{ms} \approx 5.79~\text{ms}$, consistent with the measured
-5.79~ms. MPI communication (Bcast + Gatherv) contributes only 0.12~ms ($< 2\%$) for a
-single rank.
+The larger image scales much better than the smaller one. For the $960\times1280$
+case, going from 1 to 4 ranks improves wall time from 21.67 ms to 6.90 ms, giving a
+$3.14\times$ speedup and 78.5\% efficiency. The kernel time itself scales almost
+ideally, dropping from 1.749 ms to 0.464 ms. This suggests that the CUDA work is
+being split evenly across GPUs and that there is no major load imbalance.
 
-As the rank count grows to 4, communication rises to 1.24~ms (480$\times$640) or
-2.96~ms (960$\times$1280), representing 29--30\% of total wall time. This fraction
-grows with rank count because each rank's compute slab shrinks while the broadcast
-and gather volumes (proportional to the full image) remain constant.
+The main reason scaling is not perfectly linear is communication. The full input
+image is broadcast to every rank, and the final disparity image is gathered back to
+rank~0. These communication costs do not shrink as quickly as the per-rank compute
+work. As more ranks are added, each GPU gets fewer rows to process, but the full-image
+broadcast and final gather are still present.
 
-\subsection{Parallel Efficiency Analysis}
+This effect is more noticeable for the $480\times640$ case. With 4 ranks, the wall
+time improves from 5.79 ms to 2.96 ms, which is only a $1.95\times$ speedup. Each
+rank only processes 120 rows, so the kernel is already very short. At that point,
+MPI overhead and host-device transfer overhead become a much larger fraction of the
+total runtime.
 
-At 960$\times$1280, 4-rank efficiency is 78.5\%. The kernel time scales almost ideally
-(1.749~ms $\to$ 0.464~ms, $3.77\times$ for $4\times$ more ranks), indicating no
-significant load imbalance or GPU underutilization. The efficiency gap is due entirely
-to fixed-cost MPI collectives (broadcast is $O(H \times W)$ regardless of $P$).
+\subsection{Parallel Efficiency}
 
-At 480$\times$640, 4-rank efficiency drops to 49\% because the image is small: the
-H2D/D2H transfer cost per rank is significant relative to the kernel time, and
-communication overheads are a larger fraction of the already-short wall time. This
-regime is below the crossover point where adding GPUs pays off.
+The 4-rank efficiency is 78.5\% for the larger image, but only 49\% for the smaller
+image. This is the expected trend for strong scaling: when the problem size is fixed,
+adding more GPUs reduces the compute work per GPU, but the fixed overheads remain.
 
-\section{Discussion of Approaches and Bottlenecks}
+For the large image, each rank still has enough work to keep the GPU useful, so the
+parallel efficiency stays fairly high. For the small image, each local slab is too
+small, and the overhead of launching kernels, transferring data, and running MPI
+collectives starts to dominate. This means the smaller image is below the crossover
+point where using four GPUs is clearly worth it.
 
-\textbf{Broadcast overhead.} The dominant scalability bottleneck is the
-\texttt{MPI\_Bcast} that replicates the full input image to all ranks before any
-computation begins. For larger images or more ranks, replacing the broadcast with
-\texttt{MPI\_Scatterv} (sending each rank only its slab rows plus halo) would reduce
-communication volume from $O(H \times W)$ to $O(h_i \times W)$ per rank, cutting
-broadcast cost by a factor of $P$.
+\section{Discussion of Bottlenecks}
 
-\textbf{H2D/D2H transfers.} With 10 warmup+timed iterations, host--device transfers
-are amortized over 11 kernel launches, making the effective H2D/D2H overhead appear
-small. In a real production pipeline with one kernel launch per frame, these transfers
-would represent 50--70\% of total time and should be pipelined with computation via
-CUDA streams and \texttt{cudaMemcpyAsync}.
+The biggest bottleneck in the current distributed version is the full-image
+\texttt{MPI\_Bcast}. This is simple, but it sends more data than necessary. Each rank
+only needs its own rows plus a small halo, so a future version should use
+\texttt{MPI\_Scatterv} and explicitly exchange halo rows with neighboring ranks. That
+would reduce the amount of data sent to each rank and should improve scaling,
+especially for larger images or more GPUs.
 
-\textbf{Communication--computation overlap.} Currently all MPI collectives are blocking
-and sequential. An asynchronous implementation could post the Gatherv while the next
-frame's data is being broadcast, hiding latency.
+Another bottleneck is host-device transfer. The current code copies each rank's slab
+from host to GPU before the kernel, and copies the disparity slab back after the
+kernel. For a real-time perception pipeline, these copies would matter even more
+because there would typically be one kernel launch per frame. A better version would
+use pinned memory and \texttt{cudaMemcpyAsync}, and ideally overlap transfers with
+computation using CUDA streams.
 
-\textbf{GPU underutilization at small slabs.} For 4 ranks at 480$\times$640, each
-rank's slab is only 120 rows---about 75K output pixels. The tiled kernel uses
-$16 \times 8$ blocks ($\approx$590 blocks for a 120$\times$640 image), which
-occupies only a fraction of the RTX~6000's 36 SMs, suggesting that very fine
-partitioning will eventually hurt GPU utilization even without communication overhead.
+There is also no communication-computation overlap yet. The current pipeline is
+sequential: broadcast, copy to GPU, run kernel, copy back, gather. This is fine for a
+milestone implementation, but a production version should pipeline frames so that the
+next frame can be transferred or communicated while the current frame is computing.
 
-\textbf{What we would do differently.} With more time, we would implement
-\texttt{MPI\_Scatterv} with explicit halo exchanges (\texttt{MPI\_Sendrecv}),
-overlap communication with computation using CUDA streams, and profile with Nsight
-Systems to confirm the H2D/D2H bottleneck.
+Finally, the small-image results show that splitting work across too many GPUs can
+hurt efficiency. With 4 ranks on the $480\times640$ image, each GPU only receives 120
+rows. That is not enough work to fully amortize the fixed overheads. This suggests
+that multi-GPU scaling is most useful for larger images, larger disparity ranges, or
+more expensive stereo kernels.
+
+\paragraph{Optimizations with the largest impact.}
+The single biggest improvement in this milestone was the tiled SAD kernel inherited
+from Milestone 3. In Milestone 3, the tiled version was already the fastest variant,
+and we carried it forward unchanged because it fit naturally into the per-slab
+decomposition. The row partitioning itself also helped almost linearly on the kernel:
+for the $960\times1280$ image, the CUDA kernel time dropped from 1.749\,ms at 1 rank
+to 0.464\,ms at 4 ranks ($3.8\times$ speedup, close to ideal $4\times$). The choice
+of 1-D row decomposition over a 2-D block decomposition was also important for
+correctness simplicity: horizontal disparity search depends on full rows, so row
+ownership maps cleanly onto the SAD computation with only a narrow halo. Had we used a
+2-D block layout, each block would have needed both row and column halo exchanges,
+adding complexity without a corresponding performance benefit for this kernel.
+
+\paragraph{Expected scaling ceiling.}
+The current implementation is expected to stop scaling effectively beyond roughly
+4--8 ranks for these image sizes. The \texttt{MPI\_Bcast} sends the full image
+($H \times W$ bytes) to every rank regardless of how many ranks there are, so its
+cost is $O(HW)$ and does not decrease as $P$ grows. The per-rank kernel work is
+$O(HW/P)$, so the compute time halves with each doubling of rank count while
+communication stays roughly fixed. At 4 ranks on the $960\times1280$ image,
+communication (2.96\,ms) already exceeds kernel time (0.464\,ms) by a factor of
+$6\times$. Doubling to 8 ranks would halve the kernel to $\approx0.23$\,ms while
+broadcast cost remains near 3\,ms, making the wall time communication-bound and
+yielding near-zero additional speedup. Replacing \texttt{MPI\_Bcast} with
+\texttt{MPI\_Scatterv} plus halo exchange would reduce the per-rank communication
+to $O(HW/P)$ plus a small $O(W \cdot R)$ halo term, which would shift the
+scaling ceiling substantially higher.
 
 \section{Challenges and Next Steps}
 
-\textbf{Challenges.} The main technical challenge was the Makefile integration of NVCC and
-the NVIDIA HPC SDK MPI library: \texttt{nvcc} rejects the \texttt{-pthread} flag
-generated by \texttt{mpicc --showme:compile}, requiring separate compile (nvcc with
-filtered \texttt{-I} flags only) and link (\texttt{nvc++} with explicit
-\texttt{-L}/\texttt{-lmpi} flags) steps.
+The main challenge for this milestone was integrating CUDA and MPI cleanly in the
+build system. The MPI compiler wrapper produced flags that \texttt{nvcc} did not
+accept, so we had to separate the CUDA compilation step from the MPI linking step.
+After that, the actual MPI logic was relatively straightforward.
 
-\textbf{Remaining for the final report (due June 8):}
-\begin{itemize}
-  \item Implement \texttt{MPI\_Scatterv} + halo exchange to replace the current full
-        broadcast, and quantify the reduction in communication overhead.
-  \item Profile with Nsight Systems to produce GPU timeline traces confirming the
-        H2D/D2H and barrier bottlenecks identified above.
-  \item Test with larger images (1080p, $D_\text{max}=128$) where each rank's slab
-        is large enough to saturate the GPU.
-  \item Run the pipeline on real Middlebury or KITTI stereo pairs using the new
-        \texttt{-{}-left}/\texttt{-{}-right} interface and evaluate disparity quality
-        visually against published results.
-  \item Optionally add object tracking (not yet started) if time permits.
-  \item Write the 6-page final report consolidating all milestones.
-\end{itemize}
+For the final report, our main next step is to replace the full-image broadcast with
+\texttt{MPI\_Scatterv} plus explicit halo exchange. We also want to profile the MPI
+version with Nsight Systems so we can confirm where time is being spent across MPI,
+host-device transfers, and CUDA kernels. We also plan to test larger images and
+larger disparity ranges, since those are the cases where the multi-GPU version should
+benefit the most.
+
+We also want to run the pipeline on real Middlebury or KITTI stereo pairs using the
+new PGM loader. Since those images have more realistic texture, occlusion, and
+lighting variation, they will be a better test of disparity quality than the
+synthetic sinusoidal images. If time permits, we may still add a simple object
+tracking stage, but the current priority is to finish the distributed stereo pipeline
+and evaluate its scaling carefully.
 
 \newpage
 \bibliography{refs}

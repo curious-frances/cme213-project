@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -p gpu-turing
-#SBATCH --gres gpu:1
+#SBATCH --gres gpu:4
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:10:00
@@ -34,4 +34,14 @@ done
 
 echo
 echo "Scaling CSV written to $CSV"
+
+echo
+echo "=== Nsight Compute: kernel profile (1 rank, 960x1280) ==="
+mpirun -np 4 nsys profile \
+    --trace=cuda,mpi,nvtx \
+    --output=mpi_profile_%q{OMPI_COMM_WORLD_RANK} \
+    --force-overwrite=true \
+    ./main_mpi \
+    --height 960 --width 1280 --disp 24 --max-disp 64 --radius 2 --repeats 1 --no-verify
+
 echo "Done at $(date)"

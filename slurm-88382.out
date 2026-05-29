@@ -1,0 +1,179 @@
+Starting MPI scaling study at Thu May 28 22:30:18 PDT 2026
+Node: hpcc-gpu-5-2
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+
+make: 'main_mpi' is up to date.
+=== Strong scaling: 480x640, max_disp=64, radius=2 ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.000241 ms
+  GPU kernel max : 0.435629 ms
+  Kernel wall    : 5.65902 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.09246 ms
+  Total comm     : 0.092701 ms
+  Comm fraction  : 1.61171 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.554736 ms
+  GPU kernel max : 0.222413 ms
+  Kernel wall    : 3.63373 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.244163 ms
+  Total comm     : 0.798899 ms
+  Comm fraction  : 18.0232 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~120
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.85067 ms
+  GPU kernel max : 0.118173 ms
+  Kernel wall    : 3.05638 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.282408 ms
+  Total comm     : 1.13308 ms
+  Comm fraction  : 27.0459 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+=== Larger image: 960x1280 ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.00026 ms
+  GPU kernel max : 1.75042 ms
+  Kernel wall    : 21.6655 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.423531 ms
+  Total comm     : 0.423791 ms
+  Comm fraction  : 1.91854 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.05021 ms
+  GPU kernel max : 0.885258 ms
+  Kernel wall    : 12.1165 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.744824 ms
+  Total comm     : 1.79503 ms
+  Comm fraction  : 12.9031 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.71185 ms
+  GPU kernel max : 0.453222 ms
+  Kernel wall    : 6.76758 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.805021 ms
+  Total comm     : 2.51687 ms
+  Comm fraction  : 27.1084 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+Scaling CSV written to scaling.csv
+
+=== Nsight Compute: kernel profile (1 rank, 960x1280) ===
+--------------------------------------------------------------------------
+Sorry!  You were supposed to get help about:
+    opal_init:startup:internal-failure
+But I couldn't open the help file:
+    /proj/nv/libraries/Linux_x86_64/24.1/hpcx-12/243364-rel-1/comm_libs/12.2/hpcx/hpcx-2.17.1/ompi/share/openmpi/help-opal-runtime.txt: No such file or directory.  Sorry!
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+Sorry!  You were supposed to get help about:
+    orte_init:startup:internal-failure
+But I couldn't open the help file:
+    /proj/nv/libraries/Linux_x86_64/24.1/hpcx-12/243364-rel-1/comm_libs/12.2/hpcx/hpcx-2.17.1/ompi/share/openmpi/help-orte-runtime: No such file or directory.  Sorry!
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+Sorry!  You were supposed to get help about:
+    mpi_init:startup:internal-failure
+But I couldn't open the help file:
+    /proj/nv/libraries/Linux_x86_64/24.1/hpcx-12/243364-rel-1/comm_libs/12.2/hpcx/hpcx-2.17.1/ompi/share/openmpi/help-mpi-runtime.txt: No such file or directory.  Sorry!
+--------------------------------------------------------------------------
+*** An error occurred in MPI_Init
+*** on a NULL communicator
+*** MPI_ERRORS_ARE_FATAL (processes in this communicator will now abort,
+***    and potentially your MPI job)
+[hpcc-gpu-5-2:328742] Local abort before MPI_INIT completed completed successfully, but am not able to aggregate error messages, and not able to guarantee that all other processes were killed!
+==ERROR== The application returned an error code (1).
+==WARNING== No kernels were profiled.
+Done at Thu May 28 22:30:23 PDT 2026

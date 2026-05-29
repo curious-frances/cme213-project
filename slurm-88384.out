@@ -1,0 +1,188 @@
+Starting MPI scaling study at Thu May 28 22:34:32 PDT 2026
+Node: hpcc-gpu-5-1
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+
+make: 'main_mpi' is up to date.
+=== Strong scaling: 480x640, max_disp=64, radius=2 ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.000301 ms
+  GPU kernel max : 0.464678 ms
+  Kernel wall    : 5.97773 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.097525 ms
+  Total comm     : 0.097826 ms
+  Comm fraction  : 1.61016 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.537583 ms
+  GPU kernel max : 0.230701 ms
+  Kernel wall    : 3.69991 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.256207 ms
+  Total comm     : 0.79379 ms
+  Comm fraction  : 17.6645 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~120
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.858934 ms
+  GPU kernel max : 0.141094 ms
+  Kernel wall    : 2.98939 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.370525 ms
+  Total comm     : 1.22946 ms
+  Comm fraction  : 29.1421 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+=== Larger image: 960x1280 ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.00024 ms
+  GPU kernel max : 1.78913 ms
+  Kernel wall    : 22.1152 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.399981 ms
+  Total comm     : 0.400221 ms
+  Comm fraction  : 1.77754 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.05973 ms
+  GPU kernel max : 0.905299 ms
+  Kernel wall    : 12.303 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.764345 ms
+  Total comm     : 1.82407 ms
+  Comm fraction  : 12.9119 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.85303 ms
+  GPU kernel max : 0.463712 ms
+  Kernel wall    : 6.89913 ms  (barrier-to-barrier)
+  Gather (disp)  : 1.07228 ms
+  Total comm     : 2.92531 ms
+  Comm fraction  : 29.7758 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+Scaling CSV written to scaling.csv
+
+=== Nsight Compute: kernel profile (1 rank, 960x1280) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 2.07851 ms
+  GPU kernel max : 0.475872 ms
+  Kernel wall    : 3.94693 ms  (barrier-to-barrier)
+  Gather (disp)  : 1.21354 ms
+  Total comm     : 3.29205 ms
+  Comm fraction  : 45.4767 %
+----------------------------------------------------
+====================================================
+
+Generating '/tmp/nsys-report-e009.qdstrm'
+Generating '/tmp/nsys-report-f75d.qdstrm'
+Generating '/tmp/nsys-report-b3e3.qdstrm'
+Generating '/tmp/nsys-report-d099.qdstrm'
+[1/1] [0%                          ] mpi_profile_3.nsys-rep[1/1] [0%                          ] mpi_profile_3.nsys-rep[1/1] [========40%                 ] mpi_profile_3.nsys-rep[1/1] [==========47%               ] mpi_profile_3.nsys-rep[1/1] [============54%             ] mpi_profile_3.nsys-rep[1/1] [============57%             ] mpi_profile_3.nsys-rep[1/1] [=============58%            ] mpi_profile_3.nsys-rep[1/1] [=============59%            ] mpi_profile_3.nsys-rep[1/1] [0%                          ] mpi_profile_0.nsys-rep[1/1] [=============60%            ] mpi_profile_3.nsys-rep[1/1] [==============61%           ] mpi_profile_3.nsys-rep[1/1] [==============62%           ] mpi_profile_3.nsys-rep[1/1] [================71%         ] mpi_profile_3.nsys-rep[1/1] [=================73%        ] mpi_profile_3.nsys-rep[1/1] [=================74%        ] mpi_profile_3.nsys-rep[1/1] [==================75%       ] mpi_profile_3.nsys-rep[1/1] [==================76%       ] mpi_profile_3.nsys-rep[1/1] [==================77%       ] mpi_profile_3.nsys-rep[1/1] [==================78%       ] mpi_profile_3.nsys-rep[1/1] [0%                          ] mpi_profile_1.nsys-rep[1/1] [===================79%      ] mpi_profile_3.nsys-rep[1/1] [===================80%      ] mpi_profile_3.nsys-rep[1/1] [======================90%   ] mpi_profile_3.nsys-rep[1/1] [========================97% ] mpi_profile_3.nsys-rep[1/1] [========================100%] mpi_profile_3.nsys-rep[1/1] [========================100%] mpi_profile_3.nsys-rep[1/1] [========================100%] mpi_profile_3.nsys-rep
+Generated:
+    /home/cme213/aanya/cme213-project/mpi_profile_3.nsys-rep
+[1/1] [0%                          ] mpi_profile_2.nsys-rep[1/1] [0%                          ] mpi_profile_0.nsys-rep[1/1] [=======38%                  ] mpi_profile_0.nsys-rep[1/1] [========41%                 ] mpi_profile_0.nsys-rep[1/1] [===========50%              ] mpi_profile_0.nsys-rep[1/1] [=============58%            ] mpi_profile_0.nsys-rep[1/1] [=============59%            ] mpi_profile_0.nsys-rep[1/1] [=============60%            ] mpi_profile_0.nsys-rep[1/1] [==============61%           ] mpi_profile_0.nsys-rep[1/1] [==============62%           ] mpi_profile_0.nsys-rep[1/1] [==============63%           ] mpi_profile_0.nsys-rep[1/1] [==============64%           ] mpi_profile_0.nsys-rep[1/1] [=================73%        ] mpi_profile_0.nsys-rep[1/1] [=================74%        ] mpi_profile_0.nsys-rep[1/1] [0%                          ] mpi_profile_1.nsys-rep[1/1] [8%                          ] mpi_profile_1.nsys-rep[1/1] [=16%                        ] mpi_profile_1.nsys-rep[1/1] [==================75%       ] mpi_profile_0.nsys-rep[1/1] [============55%             ] mpi_profile_1.nsys-rep[1/1] [==================76%       ] mpi_profile_0.nsys-rep[1/1] [=============58%            ] mpi_profile_1.nsys-rep[1/1] [==================77%       ] mpi_profile_0.nsys-rep[1/1] [==================78%       ] mpi_profile_0.nsys-rep[1/1] [===================79%      ] mpi_profile_0.nsys-rep[1/1] [=============59%            ] mpi_profile_1.nsys-rep[1/1] [=============60%            ] mpi_profile_1.nsys-rep[1/1] [===================80%      ] mpi_profile_0.nsys-rep[1/1] [==============61%           ] mpi_profile_1.nsys-rep[1/1] [===================81%      ] mpi_profile_0.nsys-rep[1/1] [==============62%           ] mpi_profile_1.nsys-rep[1/1] [==============63%           ] mpi_profile_1.nsys-rep[1/1] [===================82%      ] mpi_profile_0.nsys-rep[1/1] [====================83%     ] mpi_profile_0.nsys-rep[1/1] [=====================88%    ] mpi_profile_0.nsys-rep[1/1] [=======================96%  ] mpi_profile_0.nsys-rep[1/1] [========================100%] mpi_profile_0.nsys-rep[1/1] [========================100%] mpi_profile_0.nsys-rep[1/1] [==============64%           ] mpi_profile_1.nsys-rep[1/1] [===============65%          ] mpi_profile_1.nsys-rep[1/1] [==================78%       ] mpi_profile_1.nsys-rep[1/1] [0%                          ] mpi_profile_2.nsys-rep[1/1] [===================79%      ] mpi_profile_1.nsys-rep[1/1] [=======39%                  ] mpi_profile_2.nsys-rep[1/1] [==========47%               ] mpi_profile_2.nsys-rep[1/1] [============55%             ] mpi_profile_2.nsys-rep[1/1] [===================80%      ] mpi_profile_1.nsys-rep[1/1] [===================81%      ] mpi_profile_1.nsys-rep[1/1] [===================82%      ] mpi_profile_1.nsys-rep[1/1] [========================100%] mpi_profile_0.nsys-rep
+Generated:
+    /home/cme213/aanya/cme213-project/mpi_profile_0.nsys-rep
+[1/1] [====================83%     ] mpi_profile_1.nsys-rep[1/1] [=============58%            ] mpi_profile_2.nsys-rep[1/1] [====================84%     ] mpi_profile_1.nsys-rep[1/1] [=============59%            ] mpi_profile_2.nsys-rep[1/1] [====================85%     ] mpi_profile_1.nsys-rep[1/1] [=============60%            ] mpi_profile_2.nsys-rep[1/1] [==============61%           ] mpi_profile_2.nsys-rep[1/1] [=====================86%    ] mpi_profile_1.nsys-rep[1/1] [=====================87%    ] mpi_profile_1.nsys-rep[1/1] [=====================88%    ] mpi_profile_1.nsys-rep[1/1] [======================90%   ] mpi_profile_1.nsys-rep[1/1] [========================97% ] mpi_profile_1.nsys-rep[1/1] [========================100%] mpi_profile_1.nsys-rep[1/1] [========================100%] mpi_profile_1.nsys-rep[1/1] [==============62%           ] mpi_profile_2.nsys-rep[1/1] [==============63%           ] mpi_profile_2.nsys-rep[1/1] [==================76%       ] mpi_profile_2.nsys-rep[1/1] [==================77%       ] mpi_profile_2.nsys-rep[1/1] [==================78%       ] mpi_profile_2.nsys-rep[1/1] [===================79%      ] mpi_profile_2.nsys-rep[1/1] [===================80%      ] mpi_profile_2.nsys-rep[1/1] [===================81%      ] mpi_profile_2.nsys-rep[1/1] [===================82%      ] mpi_profile_2.nsys-rep[1/1] [========================100%] mpi_profile_1.nsys-rep
+Generated:
+    /home/cme213/aanya/cme213-project/mpi_profile_1.nsys-rep
+[1/1] [====================83%     ] mpi_profile_2.nsys-rep[1/1] [====================84%     ] mpi_profile_2.nsys-rep[1/1] [====================85%     ] mpi_profile_2.nsys-rep[1/1] [=====================88%    ] mpi_profile_2.nsys-rep[1/1] [=======================95%  ] mpi_profile_2.nsys-rep[1/1] [========================100%] mpi_profile_2.nsys-rep[1/1] [========================100%] mpi_profile_2.nsys-rep[1/1] [========================100%] mpi_profile_2.nsys-rep
+Generated:
+    /home/cme213/aanya/cme213-project/mpi_profile_2.nsys-rep
+Done at Thu May 28 22:34:42 PDT 2026

@@ -11,6 +11,8 @@
 \usepackage{float}
 \usepackage{amsmath}
 \usepackage{booktabs}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 \usepackage{natbib}
 \bibliographystyle{ieeetr}
 
@@ -55,56 +57,76 @@ report.
 
 \section{Distributed Algorithm and Data Decomposition}
 
-We use a simple 1-D row decomposition. If the image has height $H$ and we run with
-$P$ MPI ranks, each rank gets roughly $H/P$ rows. Rank~$i$ owns rows
+We use a 1-D row decomposition across MPI ranks. For an image of height $H$ and
+$P$ ranks, each rank is assigned a consecutive block of rows. Rank~$i$ owns rows
 $[r_i, r_i + h_i)$, where
 \[
 h_i = \lfloor H/P \rfloor + [i < H \bmod P].
 \]
-This keeps the work balanced even when the image height is not exactly divisible by
-the number of ranks.
+This gives the first $H \bmod P$ ranks one extra row, so the work stays balanced
+even when the image height is not exactly divisible by the number of ranks.
 
-The SAD kernel needs a square patch around each output pixel, so rows near the edge
-of a rank's local slab depend on neighboring rows. To handle this, each rank includes
-a small halo of \texttt{radius} rows above and below its owned region. For now, we use
-a full-image broadcast instead of a point-to-point halo exchange. This means every
-rank receives the whole left and right image, then locally extracts the rows it needs,
-including halo rows. Only the owned rows are gathered back to rank~0.
+The main complication is that the SAD kernel does not compute each row completely
+independently. Each output pixel uses a $(2R+1)\times(2R+1)$ patch, so pixels near
+the top or bottom of a rank's assigned block need access to neighboring rows. To
+handle this, each rank forms a local image slab that includes its owned rows plus
+up to \texttt{radius} halo rows above and below. The halo bounds are clamped at the
+global image boundary, so the first and last ranks do not read outside the image.
 
-This is not the most communication-efficient approach, but it keeps the MPI logic
-simple and was reasonable for the image sizes we tested. A better version for larger
-images would use \texttt{MPI\_Scatterv} to send each rank only its needed rows, plus
-\texttt{MPI\_Sendrecv} to exchange halo rows with neighboring ranks.
+In the current implementation, we use a full-image broadcast rather than an explicit
+halo exchange. Rank~0 broadcasts the full left and right images to all ranks, and
+then each rank locally extracts the slab it needs. This makes the distributed logic
+much simpler because every rank already has the data needed to build its halo region.
+After the GPU kernel runs, only the owned rows are sent back to rank~0; the halo rows
+are used for computation but are not included in the final gathered disparity map.
 
-We also considered a 2-D decomposition, but it does not help as much for this kernel.
-The disparity search is horizontal, and each output pixel already searches along the
-row direction. Splitting columns would make the horizontal search window harder to
-handle. Because of that, row partitioning is the cleaner choice for this milestone.
+This approach is not communication-optimal, since every rank receives the full input
+images. However, it was a reasonable first MPI implementation because the image sizes
+we tested are still small enough that the broadcast overhead is manageable. For larger
+images or more GPUs, the better approach would be to use \texttt{MPI\_Scatterv} to
+send each rank only its assigned rows and then use \texttt{MPI\_Sendrecv} to exchange
+halo rows with neighboring ranks.
+
+We also considered a 2-D decomposition, but row decomposition fits this kernel better.
+The disparity search is horizontal, so splitting the image by columns would make the
+search window harder to handle near rank boundaries. With row decomposition, each
+rank keeps the full image width, and the only extra data needed is a small number of
+halo rows. This keeps the implementation simple while still allowing us to distribute
+the main computation across multiple GPUs.
 
 \section{MPI Implementation}
 
-The MPI implementation uses two main collective operations. First, rank~0 creates or
-loads the stereo image pair and broadcasts the image data to all ranks with
-\texttt{MPI\_Bcast}. Each rank then extracts its local slab and copies it to its GPU.
-After the CUDA kernel finishes, each rank copies its local disparity slab back to the
-host, and \texttt{MPI\_Gatherv} collects the slabs into the full output disparity map
-on rank~0.
+The MPI implementation is organized around two collective operations:
+\texttt{MPI\_Bcast} for distributing the input images and \texttt{MPI\_Gatherv} for
+collecting the final disparity map. Rank~0 either generates the synthetic stereo pair
+or loads the real stereo pair from disk. It then broadcasts the image dimensions and
+the full left and right image buffers to all ranks.
 
-We use \texttt{MPI\_Gatherv} instead of \texttt{MPI\_Gather} because different ranks
-can own slightly different numbers of rows when $H$ is not divisible by $P$. The
-send counts and displacements are computed from the row partitioning.
+After the broadcast, each rank computes its row range and halo bounds. It copies the
+corresponding rows into local left and right image slabs and runs the tiled CUDA SAD
+kernel on those slabs. Since the local slab includes halo rows, the kernel can compute
+patches correctly near the boundaries of the rank's owned region. Once the kernel
+finishes, each rank copies its local disparity slab back to host memory.
 
-There is currently no overlap between communication and computation. The broadcast
-finishes before the CUDA kernel starts, and the gather starts only after all ranks
-finish their GPU work. This makes the implementation easier to reason about, but it
-also means communication overhead is exposed directly in the timing. In the final
-version, it would be better to overlap communication with computation, especially for
-streaming frames.
+The final output is assembled using \texttt{MPI\_Gatherv}. We use
+\texttt{MPI\_Gatherv} instead of \texttt{MPI\_Gather} because ranks may own different
+numbers of rows when $H$ is not divisible by $P$. The send count for each rank is
+\texttt{local\_rows * width}, and the displacement is based on the starting row of
+that rank in the full image. Each rank sends only its owned rows, starting after the
+top halo region in the local disparity slab.
 
-The current version also stages MPI transfers through host memory. We do not use
-CUDA-aware MPI. For the sizes tested here, this was a reasonable tradeoff because the
-images are small, and the added complexity of direct GPU-buffer communication was not
-worth it yet.
+The current version is fully synchronous. The input broadcast completes before any GPU
+work begins, and the output gather starts only after each rank has finished its CUDA
+kernel and copied the result back to the host. This makes the code easier to verify
+and debug, but it also means communication and data-transfer overheads are not hidden
+behind computation.
+
+MPI transfers are also staged through host memory. We do not currently use CUDA-aware
+MPI, so the data path is host image buffer to device slab, then device disparity slab
+back to host, then MPI gather. For the problem sizes in this milestone, this was a
+reasonable tradeoff. A more optimized version would avoid some of these extra copies
+by using CUDA-aware MPI or by overlapping host-device transfers with communication.
+
 
 \section{CUDA Integration}
 
@@ -180,22 +202,21 @@ both at the true image boundary and at local slab boundaries.
 
 \section{Performance, Scaling, and Profiling}
 
-We benchmarked the MPI+CUDA version on a single node, \texttt{hpcc-gpu-5-1}, with
-four Quadro RTX~6000 GPUs. We used SLURM with \texttt{-{}-gres gpu:4} and
-\texttt{-{}-ntasks=4}. Each rank was assigned to a separate GPU. All timings are
+We benchmarked the MPI+CUDA version on a single node with
+four GPUs and and four MPU ranks, one rank per GPU. All timings are
 averaged over 10 repeats.
 
 \subsection{Strong Scaling Results}
 
 Tables~\ref{tab:scale480} and~\ref{tab:scale960} show the strong-scaling results for
 the two image sizes. ``Kernel max'' is the maximum CUDA kernel time across all ranks.
-``Wall'' is the total barrier-to-barrier time, including the repeated kernel launches
+``Wall'' is the total barrier-to-barrier wall clock time, including the repeated kernel launches
 and host-device transfers. ``Comm'' is the measured MPI broadcast plus gather time.
-Speedup and efficiency are computed using wall time.
+Speedup and efficiency are computed using wall clock time.
 
 \begin{table}[H]
 \centering
-\caption{Strong scaling for a $480\times640$ image with $D_\text{max}=64$ and $R=2$ on 4 Quadro RTX~6000 GPUs.}
+\caption{Strong scaling for a $480\times640$ image with $D_\text{max}=64$ and $R=2$ on 4 GPUs.}
 \label{tab:scale480}
 \begin{tabular}{rrrrrrr}
 \toprule
@@ -210,7 +231,7 @@ Ranks & Rows/rank & Kernel max (ms) & Wall (ms) & Comm (ms) & Speedup & Efficien
 
 \begin{table}[H]
 \centering
-\caption{Strong scaling for a $960\times1280$ image with $D_\text{max}=64$ and $R=2$ on 4 Quadro RTX~6000 GPUs.}
+\caption{Strong scaling for a $960\times1280$ image with $D_\text{max}=64$ and $R=2$ on 4 GPUs.}
 \label{tab:scale960}
 \begin{tabular}{rrrrrrr}
 \toprule
@@ -223,9 +244,57 @@ Ranks & Rows/rank & Kernel max (ms) & Wall (ms) & Comm (ms) & Speedup & Efficien
 \end{tabular}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.48\textwidth}
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=5.5cm,
+  xlabel={Ranks}, ylabel={Speedup},
+  xtick={1,2,4}, xmin=0.5, xmax=4.5,
+  ymin=0, ymax=4.5,
+  legend pos=north west, legend style={font=\small},
+  grid=major,
+]
+\addplot[black, dashed, domain=1:4, samples=50] {x};
+\addlegendentry{Ideal}
+\addplot[blue, mark=square*, thick] coordinates {(1,1.00)(2,1.81)(4,3.14)};
+\addlegendentry{$960\times1280$}
+\addplot[red, mark=triangle*, thick] coordinates {(1,1.00)(2,1.28)(4,1.95)};
+\addlegendentry{$480\times640$}
+\end{axis}
+\end{tikzpicture}
+\caption{Speedup}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=5.5cm,
+  xlabel={Ranks}, ylabel={Parallel Efficiency (\%)},
+  xtick={1,2,4}, xmin=0.5, xmax=4.5,
+  ymin=0, ymax=110,
+  legend pos=south west, legend style={font=\small},
+  grid=major,
+]
+\addplot[black, dashed] coordinates {(1,100)(2,100)(4,100)};
+\addlegendentry{Ideal}
+\addplot[blue, mark=square*, thick] coordinates {(1,100)(2,90.5)(4,78.5)};
+\addlegendentry{$960\times1280$}
+\addplot[red, mark=triangle*, thick] coordinates {(1,100)(2,64)(4,49)};
+\addlegendentry{$480\times640$}
+\end{axis}
+\end{tikzpicture}
+\caption{Parallel efficiency}
+\end{subfigure}
+\caption{Strong-scaling speedup and parallel efficiency for two image sizes on 4 GPUs.}
+\label{fig:scaling}
+\end{figure}
+
 \subsection{Computation vs. Communication}
 
-The larger image scales much better than the smaller one. For the $960\times1280$
+Figure~\ref{fig:scaling} shows speedup and parallel efficiency curves for both image
+sizes. The larger image scales much better than the smaller one. For the $960\times1280$
 case, going from 1 to 4 ranks improves wall time from 21.67 ms to 6.90 ms, giving a
 $3.14\times$ speedup and 78.5\% efficiency. The kernel time itself scales almost
 ideally, dropping from 1.749 ms to 0.464 ms. This suggests that the CUDA work is
@@ -245,7 +314,7 @@ total runtime.
 
 \subsection{Parallel Efficiency}
 
-The 4-rank efficiency is 78.5\% for the larger image, but only 49\% for the smaller
+As seen in Figure~\ref{fig:scaling}(b), the 4-rank efficiency is 78.5\% for the larger image, but only 49\% for the smaller
 image. This is the expected trend for strong scaling: when the problem size is fixed,
 adding more GPUs reduces the compute work per GPU, but the fixed overheads remain.
 
@@ -254,6 +323,75 @@ parallel efficiency stays fairly high. For the small image, each local slab is t
 small, and the overhead of launching kernels, transferring data, and running MPI
 collectives starts to dominate. This means the smaller image is below the crossover
 point where using four GPUs is clearly worth it.
+
+\subsection{Nsight Systems Profiling}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{nsys_timeline.png}
+\caption{Nsight Systems timeline for rank~0 on a 4-rank, $960\times1280$ run.
+The two \texttt{MPI\_Bcast} calls (left) dominate the pre-kernel phase; the
+actual \texttt{kernel\_tiled} execution on the GPU appears as a narrow block
+in the CUDA HW row, confirming that the implementation is communication-bound.}
+\label{fig:nsys}
+\end{figure}
+
+Figure~\ref{fig:nsys} shows the Nsight Systems timeline for rank~0 on a 4-rank,
+$960\times1280$ run. Tables~\ref{tab:mpi_stats} and~\ref{tab:cuda_stats} summarize
+the MPI and CUDA API times reported by Nsight Systems.
+
+\begin{table}[H]
+\centering
+\caption{MPI operation times from Nsight Systems (rank~0, 4 ranks, $960\times1280$, 1 repeat). MPI\_Init and MPI\_Finalize are startup/teardown and not part of the algorithm.}
+\label{tab:mpi_stats}
+\begin{tabular}{lrrr}
+\toprule
+Operation & Total time & Calls & Avg \\
+\midrule
+MPI\_Bcast   & 4.295 ms & 3 & 1.432 ms \\
+MPI\_Barrier & 2.732 ms & 4 & 0.683 ms \\
+MPI\_Gatherv & 1.210 ms & 1 & 1.210 ms \\
+MPI\_Reduce  & 0.069 ms & 1 & 0.069 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{CUDA API times from Nsight Systems (rank~0, 4 ranks, $960\times1280$, 1 repeat).}
+\label{tab:cuda_stats}
+\begin{tabular}{lrrr}
+\toprule
+Operation & Total time & Calls & Avg \\
+\midrule
+cudaMalloc             & 1.012 ms & 3 & 0.337 ms \\
+cudaDeviceSynchronize  & 0.453 ms & 1 & 0.453 ms \\
+cudaEventSynchronize   & 0.451 ms & 1 & 0.451 ms \\
+cudaMemcpy             & 0.386 ms & 3 & 0.129 ms \\
+cudaFree               & 0.368 ms & 3 & 0.123 ms \\
+cudaLaunchKernel       & 0.176 ms & 2 & 0.088 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The dominant algorithm-level cost is \texttt{MPI\_Bcast} at 4.295\,ms across
+three calls (image dimensions, left image, right image), compared to only
+1.210\,ms for \texttt{MPI\_Gatherv}. This asymmetry is expected: the broadcast
+sends the full image to every rank while the gather only collects the owned rows.
+On the CUDA side, host-device transfers (\texttt{cudaMemcpy}) total just 386\,µs,
+and the kernel launch overhead is 176\,µs for two launches (warmup and timed).
+
+The CUDA hardware breakdown confirms that the GPU itself is being used efficiently:
+85.9\% of GPU time is spent in \texttt{kernel\_tiled}, and only 14.1\% is spent
+on memory transfers. Of the memory traffic, device-to-host copies account for
+64.7\% and host-to-device for 35.3\%. The DtoH fraction is larger because the
+disparity output is \texttt{int32} (4 bytes/pixel) while the input images are
+\texttt{uint8} (1 byte/pixel), so a single disparity copy transfers more bytes
+than the two input image copies combined.
+
+Taken together, the profiling data confirms that GPU execution and data movement
+are not the bottleneck --- the MPI broadcast is --- and that switching to
+\texttt{MPI\_Scatterv} would have the largest impact on end-to-end runtime.
 
 \section{Discussion of Bottlenecks}
 

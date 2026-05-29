@@ -1,0 +1,173 @@
+Starting MPI scaling study at Thu May 28 22:33:01 PDT 2026
+Node: hpcc-gpu-5-2
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+Quadro RTX 6000, 23040 MiB
+
+make: 'main_mpi' is up to date.
+=== Strong scaling: 480x640, max_disp=64, radius=2 ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.00035 ms
+  GPU kernel max : 0.4348 ms
+  Kernel wall    : 5.64714 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.092286 ms
+  Total comm     : 0.092636 ms
+  Comm fraction  : 1.61393 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.565731 ms
+  GPU kernel max : 0.22183 ms
+  Kernel wall    : 3.64127 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.244808 ms
+  Total comm     : 0.810539 ms
+  Comm fraction  : 18.207 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~120
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.81147 ms
+  GPU kernel max : 0.118451 ms
+  Kernel wall    : 2.94784 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.271929 ms
+  Total comm     : 1.0834 ms
+  Comm fraction  : 26.8751 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+=== Larger image: 960x1280 ===
+--- nranks=1 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.000521 ms
+  GPU kernel max : 1.75014 ms
+  Kernel wall    : 21.6583 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.423379 ms
+  Total comm     : 0.4239 ms
+  Comm fraction  : 1.91964 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=2 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.04327 ms
+  GPU kernel max : 0.884858 ms
+  Kernel wall    : 12.1136 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.733201 ms
+  Total comm     : 1.77647 ms
+  Comm fraction  : 12.7895 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- nranks=4 ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.70332 ms
+  GPU kernel max : 0.452998 ms
+  Kernel wall    : 6.76573 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.828663 ms
+  Total comm     : 2.53199 ms
+  Comm fraction  : 27.2323 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+Scaling CSV written to scaling.csv
+
+=== Nsight Compute: kernel profile (1 rank, 960x1280) ===
+==PROF== Connected to process 329242 (/home/cme213/aanya/cme213-project/main_mpi)
+
+==ERROR== Failed to open/create lock file /tmp/nsight-compute-lock. Please check that this process has write permissions on this file. See https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#faq for more details.
+==ERROR== Failed to profile "kernel_tiled" in process 329242
+==PROF== Trying to shutdown target application
+==ERROR== The application returned an error code (9).
+==ERROR== An error occurred while trying to profile.
+==WARNING== No kernels were profiled.
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun detected that one or more processes exited with non-zero status, thus causing
+the job to be terminated. The first process to do so was:
+
+  Process name: [[4691,1],0]
+  Exit code:    9
+--------------------------------------------------------------------------
+Done at Thu May 28 22:33:09 PDT 2026

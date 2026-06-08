@@ -1,0 +1,92 @@
+=== Middlebury 2001 stereo data download ===
+Target: data/middlebury/
+
+  already have data/middlebury/tsukuba/imL.ppm
+  already have data/middlebury/tsukuba/imR.ppm
+  already have data/middlebury/tsukuba/gt_disp.pgm
+Loading data/middlebury/tsukuba/imL.ppm ...
+Loading data/middlebury/tsukuba/imR.ppm ...
+  Wrote data/middlebury/tsukuba/left.pgm  (384x288)
+  Wrote data/middlebury/tsukuba/right.pgm  (384x288)
+  tsukuba ready: data/middlebury/tsukuba/left.pgm  data/middlebury/tsukuba/right.pgm
+
+  downloading https://vision.middlebury.edu/stereo/data/scenes2001/data/sawtooth/im2.ppm
+
+     0K .......... .......... .......... .......... .......... 10%  354K 1s
+    50K .......... .......... .......... .......... .......... 20%  784K 1s
+   100K .......... .......... .......... .......... .......... 31% 4.77M 0s
+   150K .......... .......... .......... .......... .......... 41% 10.9M 0s
+   200K .......... .......... .......... .......... .......... 51%  801K 0s
+   250K .......... .......... .......... .......... .......... 62% 15.1M 0s
+   300K .......... .......... .......... .......... .......... 72% 15.1M 0s
+   350K .......... .......... .......... .......... .......... 82%  209M 0s
+   400K .......... .......... .......... .......... .......... 93%  876K 0s
+   450K .......... .......... .......... ...                  100% 24.3M=0.3s  downloading https://vision.middlebury.edu/stereo/data/scenes2001/data/sawtooth/im6.ppm
+
+     0K .......... .......... .......... .......... .......... 10%  352K 1s
+    50K .......... .......... .......... .......... .......... 20%  705K 1s
+   100K .......... .......... .......... .......... .......... 31% 14.7M 0s
+   150K .......... .......... .......... .......... .......... 41%  719K 0s
+   200K .......... .......... .......... .......... .......... 51%  166M 0s
+   250K .......... .......... .......... .......... .......... 62% 16.8M 0s
+   300K .......... .......... .......... .......... .......... 72% 15.8M 0s
+   350K .......... .......... .......... .......... .......... 82%  807K 0s
+   400K .......... .......... .......... .......... .......... 93% 84.1M 0s
+   450K .......... .......... .......... ...                  100% 50.1M=0.4s  downloading https://vision.middlebury.edu/stereo/data/scenes2001/data/sawtooth/disp2.pgm
+
+     0K .......... .......... .......... .......... .......... 31%  354K 0s
+    50K .......... .......... .......... .......... .......... 62%  762K 0s
+   100K .......... .......... .......... .......... .......... 93% 6.11M 0s
+   150K .......... .                                          100%  139M=0.2sLoading data/middlebury/sawtooth/imL.ppm ...
+Loading data/middlebury/sawtooth/imR.ppm ...
+  Wrote data/middlebury/sawtooth/left.pgm  (434x380)
+  Wrote data/middlebury/sawtooth/right.pgm  (434x380)
+  sawtooth ready: data/middlebury/sawtooth/left.pgm  data/middlebury/sawtooth/right.pgm
+
+  downloading https://vision.middlebury.edu/stereo/data/scenes2001/data/venus/im2.ppm
+
+     0K .......... .......... .......... .......... .......... 10%  355K 1s
+    50K .......... .......... .......... .......... .......... 20%  745K 1s
+   100K .......... .......... .......... .......... .......... 30% 2.67M 1s
+   150K .......... .......... .......... .......... .......... 41% 2.96M 0s
+   200K .......... .......... .......... .......... .......... 51% 1.25M 0s
+   250K .......... .......... .......... .......... .......... 61% 17.3M 0s
+   300K .......... .......... .......... .......... .......... 71% 16.5M 0s
+   350K .......... .......... .......... .......... .......... 82%  204M 0s
+   400K .......... .......... .......... .......... .......... 92%  814K 0s
+   450K .......... .......... .......... ......               100% 43.0M=0.4s  downloading https://vision.middlebury.edu/stereo/data/scenes2001/data/venus/im6.ppm
+
+     0K .......... .......... .......... .......... .......... 10%  350K 1s
+    50K .......... .......... .......... .......... .......... 20%  790K 1s
+   100K .......... .......... .......... .......... .......... 30% 4.60M 0s
+   150K .......... .......... .......... .......... .......... 41%  839K 0s
+   200K .......... .......... .......... .......... .......... 51% 7.07M 0s
+   250K .......... .......... .......... .......... .......... 61% 6.93M 0s
+   300K .......... .......... .......... .......... .......... 71% 15.8M 0s
+   350K .......... .......... .......... .......... .......... 82% 1.68M 0s
+   400K .......... .......... .......... .......... .......... 92% 1.96M 0s
+   450K .......... .......... .......... ......               100% 48.0M=0.3s  downloading https://vision.middlebury.edu/stereo/data/scenes2001/data/venus/disp2.pgm
+
+     0K .......... .......... .......... .......... .......... 30%  357K 0s
+    50K .......... .......... .......... .......... .......... 61%  742K 0s
+   100K .......... .......... .......... .......... .......... 92% 3.73M 0s
+   150K .......... ..                                         100% 69.7M=0.2sLoading data/middlebury/venus/imL.ppm ...
+Loading data/middlebury/venus/imR.ppm ...
+  Wrote data/middlebury/venus/left.pgm  (434x383)
+  Wrote data/middlebury/venus/right.pgm  (434x383)
+  venus ready: data/middlebury/venus/left.pgm  data/middlebury/venus/right.pgm
+
+=== Summary ===
+  tsukuba: P5 384 288 
+  sawtooth: P5 434 380 
+  venus: P5 434 383 
+
+=== Ready to run ===
+Single-GPU:
+  ./main_gpu --left data/middlebury/tsukuba/left.pgm --right data/middlebury/tsukuba/right.pgm \
+             --max-disp 16 --radius 2 --no-cpu --save-images
+
+MPI (4 ranks):
+  mpirun -np 4 ./main_mpi \
+    --left data/middlebury/tsukuba/left.pgm --right data/middlebury/tsukuba/right.pgm \
+    --max-disp 16 --radius 2 --repeats 5 --save-images --output-prefix results/tsukuba

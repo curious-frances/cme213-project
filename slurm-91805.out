@@ -1,0 +1,175 @@
+make: 'main_gpu' is up to date.
+make: 'main_mpi' is up to date.
+Starting real-image stereo evaluation at Sun Jun  7 23:59:25 PDT 2026
+Node: hpcc-gpu-5-2
+Quadro RTX 6000
+Quadro RTX 6000
+Quadro RTX 6000
+Quadro RTX 6000
+
+=== GPU: tsukuba (max_disp=16, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 288 x 384
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 16
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.0827008 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.117219 ms
+    FPS   : 8531.03
+    Tput  : 705.523 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.0626528 ms
+    FPS   : 15961
+    Tput  : 1319.99 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.227373 ms
+    FPS   : 4398.06
+    Tput  : 363.723 GOps/s
+  Saved: disp_tiled.pgm/.ppm, disp_gt.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/tsukuba_tiled.pgm/.ppm
+=== GPU: sawtooth (max_disp=20, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 380 x 434
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 20
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.15416 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.14449 ms
+    FPS   : 6920.91
+    Tput  : 1066.93 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.109978 ms
+    FPS   : 9092.76
+    Tput  : 1401.74 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.22599 ms
+    FPS   : 4424.97
+    Tput  : 682.153 GOps/s
+  Saved: disp_tiled.pgm/.ppm, disp_gt.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/sawtooth_tiled.pgm/.ppm
+=== GPU: venus (max_disp=20, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 383 x 434
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 20
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.15539 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.145011 ms
+    FPS   : 6896.02
+    Tput  : 1071.57 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.109978 ms
+    FPS   : 9092.76
+    Tput  : 1412.92 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.22769 ms
+    FPS   : 4391.94
+    Tput  : 682.464 GOps/s
+  Saved: disp_tiled.pgm/.ppm, disp_gt.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/venus_tiled.pgm/.ppm
+=== MPI (4 ranks): tsukuba (max_disp=16) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 288 x 384
+  Max disp/radius: 16 / 2
+  Rows per rank  : ~72
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.570055 ms
+  GPU kernel max : 0.0659456 ms
+  Kernel wall    : 1.95541 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.175915 ms
+  Total comm     : 0.74597 ms
+  Comm fraction  : 27.6144 %
+----------------------------------------------------
+  Saved: results/tsukuba_mpi_np4.pgm, results/tsukuba_mpi_np4.ppm
+  Saved: results/tsukuba_mpi_np4_left.pgm, results/tsukuba_mpi_np4_right.pgm
+====================================================
+
+  → results/tsukuba_mpi_np4.pgm/.ppm
+=== MPI (4 ranks): venus (max_disp=20) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 383 x 434
+  Max disp/radius: 20 / 2
+  Rows per rank  : ~95 (some ranks get +1)
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.655017 ms
+  GPU kernel max : 0.0720064 ms
+  Kernel wall    : 1.9656 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.254475 ms
+  Total comm     : 0.909492 ms
+  Comm fraction  : 31.6335 %
+----------------------------------------------------
+  Saved: results/venus_mpi_np4.pgm, results/venus_mpi_np4.ppm
+  Saved: results/venus_mpi_np4_left.pgm, results/venus_mpi_np4_right.pgm
+====================================================
+
+  → results/venus_mpi_np4.pgm/.ppm
+
+=== All results in results/ ===
+total 11M
+-rw-r--r-- 1 fraphael cme213  649 Jun  7 23:59 real_images_gpu.csv
+-rw-r--r-- 1 fraphael cme213  199 Jun  7 23:59 real_images_mpi.csv
+-rw-r--r-- 1 fraphael cme213 162K Jun  7 23:59 sawtooth_gt.pgm
+-rw-r--r-- 1 fraphael cme213 484K Jun  7 23:59 sawtooth_gt.ppm
+-rw-r--r-- 1 fraphael cme213 162K Jun  7 23:59 sawtooth_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 484K Jun  7 23:59 sawtooth_tiled.ppm
+-rw-r--r-- 1 fraphael cme213 109K Jun  7 23:59 tsukuba_gt.pgm
+-rw-r--r-- 1 fraphael cme213 325K Jun  7 23:59 tsukuba_gt.ppm
+-rw-r--r-- 1 fraphael cme213 109K Jun  7 23:59 tsukuba_mpi_np4.pgm
+-rw-r--r-- 1 fraphael cme213 325K Jun  7 23:59 tsukuba_mpi_np4.ppm
+-rw-r--r-- 1 fraphael cme213 109K Jun  7 23:59 tsukuba_mpi_np4_left.pgm
+-rw-r--r-- 1 fraphael cme213 109K Jun  7 23:59 tsukuba_mpi_np4_right.pgm
+-rw-r--r-- 1 fraphael cme213 109K Jun  7 23:59 tsukuba_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 325K Jun  7 23:59 tsukuba_tiled.ppm
+-rw-r--r-- 1 fraphael cme213 163K Jun  7 23:59 venus_gt.pgm
+-rw-r--r-- 1 fraphael cme213 487K Jun  7 23:59 venus_gt.ppm
+-rw-r--r-- 1 fraphael cme213 163K Jun  7 23:59 venus_mpi_np4.pgm
+-rw-r--r-- 1 fraphael cme213 487K Jun  7 23:59 venus_mpi_np4.ppm
+-rw-r--r-- 1 fraphael cme213 163K Jun  7 23:59 venus_mpi_np4_left.pgm
+-rw-r--r-- 1 fraphael cme213 163K Jun  7 23:59 venus_mpi_np4_right.pgm
+-rw-r--r-- 1 fraphael cme213 163K Jun  7 23:59 venus_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 487K Jun  7 23:59 venus_tiled.ppm
+Done at Sun Jun  7 23:59:31 PDT 2026

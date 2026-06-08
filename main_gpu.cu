@@ -150,7 +150,8 @@ int main(int argc, char** argv) {
     if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_basic.pgm", p.max_disp);
-      std::cout << "  Saved: disp_basic.pgm\n";
+      save_disparity_ppm(disp_out, "disp_basic.ppm", p.max_disp);
+      std::cout << "  Saved: disp_basic.pgm, disp_basic.ppm\n";
     }
     if (!opt.csv_path.empty())
       append_benchmark_csv(opt.csv_path, "GPU_basic", p, gpu_ms_to_timer(ms), gops);
@@ -162,7 +163,8 @@ int main(int argc, char** argv) {
     if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_smem.pgm", p.max_disp);
-      std::cout << "  Saved: disp_smem.pgm\n";
+      save_disparity_ppm(disp_out, "disp_smem.ppm", p.max_disp);
+      std::cout << "  Saved: disp_smem.pgm, disp_smem.ppm\n";
     }
     if (!opt.csv_path.empty())
       append_benchmark_csv(opt.csv_path, "GPU_smem", p, gpu_ms_to_timer(ms), gops);
@@ -174,8 +176,13 @@ int main(int argc, char** argv) {
     if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_tiled.pgm", p.max_disp);
-      save_disparity_pgm(gt,       "disp_gt.pgm",    p.max_disp);
-      std::cout << "  Saved: disp_tiled.pgm, disp_gt.pgm\n";
+      save_disparity_ppm(disp_out, "disp_tiled.ppm", p.max_disp);
+      std::cout << "  Saved: disp_tiled.pgm/.ppm\n";
+      if (have_gt) {
+        save_disparity_pgm(gt, "disp_gt.pgm", p.max_disp);
+        save_disparity_ppm(gt, "disp_gt.ppm", p.max_disp);
+        std::cout << "  Saved: disp_gt.pgm/.ppm\n";
+      }
     }
     if (!opt.csv_path.empty())
       append_benchmark_csv(opt.csv_path, "GPU_tiled", p, gpu_ms_to_timer(ms), gops);

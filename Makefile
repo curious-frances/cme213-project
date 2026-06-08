@@ -88,4 +88,4 @@ run_mpi: main_mpi
 	mpirun -np 4 ./main_mpi --height 480 --width 640 --disp 24 --max-disp 64 --radius 2 --repeats 5
 
 clean:
-	rm -f main_cpu main_gpu main_mpi test_cpu *.o *.a *.pgm *.csv
+	rm -f main_cpu main_gpu main_mpi test_cpu *.o *.a *.pgm *.ppm *.csv

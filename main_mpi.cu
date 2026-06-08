@@ -13,10 +13,12 @@
 
 struct MpiRunOptions {
     StereoParams p;
-    bool         verify     = true;
-    std::string  csv_path   = "";
-    std::string  left_path  = "";
-    std::string  right_path = "";
+    bool         verify        = true;
+    bool         save_images   = false;
+    std::string  csv_path      = "";
+    std::string  left_path     = "";
+    std::string  right_path    = "";
+    std::string  output_prefix = "disp_mpi";
 };
 
 static void parse_args(int argc, char** argv, MpiRunOptions& opt) {
@@ -29,10 +31,12 @@ static void parse_args(int argc, char** argv, MpiRunOptions& opt) {
         if ((key == "--max-disp" || key == "-m") && i+1<argc) { p.max_disp  = std::stoi(argv[++i]); continue; }
         if ((key == "--radius"   || key == "-r") && i+1<argc) { p.radius    = std::stoi(argv[++i]); continue; }
         if ((key == "--repeats"  || key == "-n") && i+1<argc) { p.repeats   = std::stoi(argv[++i]); continue; }
-        if (key == "--no-verify")                              { opt.verify     = false;      continue; }
-        if (key == "--csv"      && i+1<argc)                   { opt.csv_path  = argv[++i]; continue; }
-        if (key == "--left"     && i+1<argc)                   { opt.left_path  = argv[++i]; continue; }
-        if (key == "--right"    && i+1<argc)                   { opt.right_path = argv[++i]; continue; }
+        if (key == "--no-verify")                              { opt.verify        = false;       continue; }
+        if (key == "--save-images")                            { opt.save_images   = true;        continue; }
+        if (key == "--csv"            && i+1<argc)             { opt.csv_path      = argv[++i];   continue; }
+        if (key == "--left"           && i+1<argc)             { opt.left_path     = argv[++i];   continue; }
+        if (key == "--right"          && i+1<argc)             { opt.right_path    = argv[++i];   continue; }
+        if (key == "--output-prefix"  && i+1<argc)             { opt.output_prefix = argv[++i];   continue; }
     }
 }
 
@@ -172,6 +176,25 @@ int main(int argc, char** argv) {
             generate_ground_truth(gt, p.true_disp, p.radius, p.max_disp);
             std::copy(full_disp.begin(), full_disp.end(), combined.data);
             print_accuracy(combined, gt);
+        }
+
+        if (opt.save_images) {
+            DisparityMap combined(H, W);
+            std::copy(full_disp.begin(), full_disp.end(), combined.data);
+            std::string pgm_path = opt.output_prefix + ".pgm";
+            std::string ppm_path = opt.output_prefix + ".ppm";
+            save_disparity_pgm(combined, pgm_path, p.max_disp);
+            save_disparity_ppm(combined, ppm_path,  p.max_disp);
+            std::cout << "  Saved: " << pgm_path << ", " << ppm_path << "\n";
+            if (using_real) {
+                Image img_l(H, W), img_r(H, W);
+                std::copy(full_left.begin(),  full_left.end(),  img_l.data);
+                std::copy(full_right.begin(), full_right.end(), img_r.data);
+                save_pgm(img_l, opt.output_prefix + "_left.pgm");
+                save_pgm(img_r, opt.output_prefix + "_right.pgm");
+                std::cout << "  Saved: " << opt.output_prefix << "_left.pgm, "
+                          << opt.output_prefix << "_right.pgm\n";
+            }
         }
         std::cout << "====================================================\n\n";
 

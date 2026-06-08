@@ -246,6 +246,32 @@ void save_disparity_pgm(const DisparityMap& disp, const std::string& path, int m
   f.write(reinterpret_cast<const char*>(buf.data()), buf.size());
 }
 
+void save_disparity_ppm(const DisparityMap& disp, const std::string& path, int max_disp) {
+  std::ofstream f(path, std::ios::binary);
+  CHECK(f.is_open(), ("save_disparity_ppm: cannot open " + path).c_str());
+  f << "P6\n" << disp.width << " " << disp.height << "\n255\n";
+
+  // Jet colormap: blue(0) -> cyan -> green -> yellow -> red(1)
+  std::vector<uint8_t> buf(disp.size() * 3);
+  for (int i = 0; i < disp.size(); ++i) {
+    float t = static_cast<float>(std::max(0, disp.data[i])) /
+              static_cast<float>(std::max(1, max_disp - 1));
+    t = std::min(1.0f, t);
+
+    float r, g, b;
+    if      (t < 0.125f) { r = 0.0f; g = 0.0f; b = 0.5f + 4.0f * t; }
+    else if (t < 0.375f) { r = 0.0f; g = 4.0f * (t - 0.125f); b = 1.0f; }
+    else if (t < 0.625f) { r = 4.0f * (t - 0.375f); g = 1.0f; b = 1.0f - 4.0f * (t - 0.375f); }
+    else if (t < 0.875f) { r = 1.0f; g = 1.0f - 4.0f * (t - 0.625f); b = 0.0f; }
+    else                  { r = 1.0f - 4.0f * (t - 0.875f); g = 0.0f; b = 0.0f; }
+
+    buf[3 * i + 0] = static_cast<uint8_t>(std::min(255.0f, r * 255.0f));
+    buf[3 * i + 1] = static_cast<uint8_t>(std::min(255.0f, g * 255.0f));
+    buf[3 * i + 2] = static_cast<uint8_t>(std::min(255.0f, b * 255.0f));
+  }
+  f.write(reinterpret_cast<const char*>(buf.data()), buf.size());
+}
+
 void append_benchmark_csv(const std::string&  csv_path,
                           const std::string&  impl,
                           const StereoParams& p,

@@ -1,0 +1,494 @@
+make: 'main_gpu' is up to date.
+make: 'main_mpi' is up to date.
+Starting real-image stereo evaluation at Mon Jun  8 00:17:15 PDT 2026
+Node: hpcc-gpu-5-1
+Quadro RTX 6000
+Quadro RTX 6000
+Quadro RTX 6000
+Quadro RTX 6000
+
+======== Small real images (Middlebury 2001) ========
+=== GPU: tsukuba (max_disp=16, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 288 x 384
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 16
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.0827008 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.116941 ms
+    FPS   : 8551.34
+    Tput  : 707.202 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.0631744 ms
+    FPS   : 15829.2
+    Tput  : 1309.09 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.23121 ms
+    FPS   : 4325.08
+    Tput  : 357.688 GOps/s
+  Saved: disp_tiled.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/tsukuba_tiled.pgm/.ppm
+=== GPU: sawtooth (max_disp=20, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 380 x 434
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 20
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.15416 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.144163 ms
+    FPS   : 6936.58
+    Tput  : 1069.34 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.111805 ms
+    FPS   : 8944.16
+    Tput  : 1378.83 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.229062 ms
+    FPS   : 4365.62
+    Tput  : 673.004 GOps/s
+  Saved: disp_tiled.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/sawtooth_tiled.pgm/.ppm
+=== GPU: venus (max_disp=20, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 383 x 434
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 20
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.15539 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.144954 ms
+    FPS   : 6898.76
+    Tput  : 1072 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.111622 ms
+    FPS   : 8958.77
+    Tput  : 1392.1 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.23119 ms
+    FPS   : 4325.44
+    Tput  : 672.13 GOps/s
+  Saved: disp_tiled.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/venus_tiled.pgm/.ppm
+=== MPI (4 ranks): tsukuba (max_disp=16) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 288 x 384
+  Max disp/radius: 16 / 2
+  Rows per rank  : ~72
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.608838 ms
+  GPU kernel max : 0.0728448 ms
+  Kernel wall    : 1.97109 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.175023 ms
+  Total comm     : 0.783861 ms
+  Comm fraction  : 28.4528 %
+----------------------------------------------------
+  Saved: results/tsukuba_mpi_np4.pgm, results/tsukuba_mpi_np4.ppm
+  Saved: results/tsukuba_mpi_np4_left.pgm, results/tsukuba_mpi_np4_right.pgm
+====================================================
+
+  → results/tsukuba_mpi_np4.pgm/.ppm
+=== MPI (4 ranks): venus (max_disp=20) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 383 x 434
+  Max disp/radius: 20 / 2
+  Rows per rank  : ~95 (some ranks get +1)
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.642452 ms
+  GPU kernel max : 0.0724416 ms
+  Kernel wall    : 2.06206 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.267449 ms
+  Total comm     : 0.909901 ms
+  Comm fraction  : 30.6162 %
+----------------------------------------------------
+  Saved: results/venus_mpi_np4.pgm, results/venus_mpi_np4.ppm
+  Saved: results/venus_mpi_np4_left.pgm, results/venus_mpi_np4_right.pgm
+====================================================
+
+  → results/venus_mpi_np4.pgm/.ppm
+======== Large real image (Middlebury 2014, ~1482x1000) ========
+=== GPU: motorcycle (max_disp=64, radius=2) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 1000 x 1482
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 4.5067 GOps/frame
+
+  [GPU basic]
+    Mean  : 3.9996 ms
+    FPS   : 250.025
+    Tput  : 1126.79 GOps/s
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 2.78815 ms
+    FPS   : 358.661
+    Tput  : 1616.38 GOps/s
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 2.00795 ms
+    FPS   : 498.021
+    Tput  : 2244.43 GOps/s
+  Saved: disp_tiled.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/real_images_gpu.csv
+  → results/motorcycle_tiled.pgm/.ppm
+=== MPI (1 ranks): motorcycle (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 1000 x 1482
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~1000
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.00021 ms
+  GPU kernel max : 2.04223 ms
+  Kernel wall    : 14.5984 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.417925 ms
+  Total comm     : 0.418135 ms
+  Comm fraction  : 2.78451 %
+----------------------------------------------------
+  Saved: results/motorcycle_mpi_np1.pgm, results/motorcycle_mpi_np1.ppm
+  Saved: results/motorcycle_mpi_np1_left.pgm, results/motorcycle_mpi_np1_right.pgm
+====================================================
+
+  → results/motorcycle_mpi_np1.pgm/.ppm
+=== MPI (2 ranks): motorcycle (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 1000 x 1482
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~500
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.22473 ms
+  GPU kernel max : 1.02966 ms
+  Kernel wall    : 8.90244 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.744967 ms
+  Total comm     : 1.9697 ms
+  Comm fraction  : 18.1169 %
+----------------------------------------------------
+  Saved: results/motorcycle_mpi_np2.pgm, results/motorcycle_mpi_np2.ppm
+  Saved: results/motorcycle_mpi_np2_left.pgm, results/motorcycle_mpi_np2_right.pgm
+====================================================
+
+  → results/motorcycle_mpi_np2.pgm/.ppm
+=== MPI (4 ranks): motorcycle (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 1000 x 1482
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~250
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 2.09536 ms
+  GPU kernel max : 0.525094 ms
+  Kernel wall    : 5.72434 ms  (barrier-to-barrier)
+  Gather (disp)  : 1.24717 ms
+  Total comm     : 3.34253 ms
+  Comm fraction  : 36.8653 %
+----------------------------------------------------
+  Saved: results/motorcycle_mpi_np4.pgm, results/motorcycle_mpi_np4.ppm
+  Saved: results/motorcycle_mpi_np4_left.pgm, results/motorcycle_mpi_np4_right.pgm
+====================================================
+
+  → results/motorcycle_mpi_np4.pgm/.ppm
+======== Synthetic large images ========
+=== GPU synthetic: 960x1280 (max_disp=64) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 960 x 1280
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 10
+----------------------------------------------------
+  Compute (approx): 3.70775 GOps/frame
+
+  [GPU basic]
+    Mean  : 4.66543 ms
+    FPS   : 214.342
+    Tput  : 794.728 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  [GPU smem]
+    Mean  : 2.3290 ms
+    FPS   : 429.3715
+    Tput  : 1592.0022 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  [GPU tiled]
+    Mean  : 2.3687 ms
+    FPS   : 422.1695
+    Tput  : 1565.2992 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+  Benchmark data written to: results/synthetic_gpu.csv
+
+=== GPU synthetic: 1920x2560 (max_disp=64) ===
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 1920 x 2560
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 10
+----------------------------------------------------
+  Compute (approx): 15.279 GOps/frame
+
+  [GPU basic]
+    Mean  : 18.7586 ms
+    FPS   : 53.3088
+    Tput  : 814.502 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  [GPU smem]
+    Mean  : 9.2989 ms
+    FPS   : 107.5391
+    Tput  : 1643.0844 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+  [GPU tiled]
+    Mean  : 9.4684 ms
+    FPS   : 105.6147
+    Tput  : 1613.6814 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+  Benchmark data written to: results/synthetic_gpu.csv
+
+=== MPI (1 ranks) synthetic: 960x1280 (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.0003 ms
+  GPU kernel max : 2.36986 ms
+  Kernel wall    : 17.8446 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.412414 ms
+  Total comm     : 0.412714 ms
+  Comm fraction  : 2.26054 %
+----------------------------------------------------
+====================================================
+
+
+=== MPI (2 ranks) synthetic: 960x1280 (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.09069 ms
+  GPU kernel max : 1.19176 ms
+  Kernel wall    : 9.59936 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.749847 ms
+  Total comm     : 1.84053 ms
+  Comm fraction  : 16.0887 %
+----------------------------------------------------
+====================================================
+
+
+=== MPI (4 ranks) synthetic: 960x1280 (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 1.86952 ms
+  GPU kernel max : 0.609485 ms
+  Kernel wall    : 5.28048 ms  (barrier-to-barrier)
+  Gather (disp)  : 1.07741 ms
+  Total comm     : 2.94693 ms
+  Comm fraction  : 35.8184 %
+----------------------------------------------------
+====================================================
+
+
+=== MPI (1 ranks) synthetic: 1920x2560 (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 1920 x 2560
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~1920
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 0.000451 ms
+  GPU kernel max : 9.56424 ms
+  Kernel wall    : 64.0318 ms  (barrier-to-barrier)
+  Gather (disp)  : 3.32682 ms
+  Total comm     : 3.32727 ms
+  Comm fraction  : 4.9396 %
+----------------------------------------------------
+====================================================
+
+
+=== MPI (2 ranks) synthetic: 1920x2560 (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 1920 x 2560
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 2.94202 ms
+  GPU kernel max : 4.81201 ms
+  Kernel wall    : 35.1661 ms  (barrier-to-barrier)
+  Gather (disp)  : 4.25631 ms
+  Total comm     : 7.19832 ms
+  Comm fraction  : 16.9914 %
+----------------------------------------------------
+====================================================
+
+
+=== MPI (4 ranks) synthetic: 1920x2560 (max_disp=64) ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 1920 x 2560
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Bcast (input)  : 4.69802 ms
+  GPU kernel max : 2.41569 ms
+  Kernel wall    : 19.0434 ms  (barrier-to-barrier)
+  Gather (disp)  : 4.19841 ms
+  Total comm     : 8.89642 ms
+  Comm fraction  : 31.8414 %
+----------------------------------------------------
+====================================================
+
+
+
+=== All results in results/ ===
+total 55M
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np1.pgm
+-rw-r--r-- 1 fraphael cme213 4.3M Jun  8 00:17 motorcycle_mpi_np1.ppm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np1_left.pgm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np1_right.pgm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np2.pgm
+-rw-r--r-- 1 fraphael cme213 4.3M Jun  8 00:17 motorcycle_mpi_np2.ppm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np2_left.pgm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np2_right.pgm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np4.pgm
+-rw-r--r-- 1 fraphael cme213 4.3M Jun  8 00:17 motorcycle_mpi_np4.ppm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np4_left.pgm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_mpi_np4_right.pgm
+-rw-r--r-- 1 fraphael cme213 1.5M Jun  8 00:17 motorcycle_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 4.3M Jun  8 00:17 motorcycle_tiled.ppm
+-rw-r--r-- 1 fraphael cme213 1.4K Jun  8 00:17 real_images_gpu.csv
+-rw-r--r-- 1 fraphael cme213  493 Jun  8 00:17 real_images_mpi.csv
+-rw-r--r-- 1 fraphael cme213 162K Jun  7 23:59 sawtooth_gt.pgm
+-rw-r--r-- 1 fraphael cme213 484K Jun  7 23:59 sawtooth_gt.ppm
+-rw-r--r-- 1 fraphael cme213 162K Jun  8 00:17 sawtooth_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 484K Jun  8 00:17 sawtooth_tiled.ppm
+-rw-r--r-- 1 fraphael cme213  466 Jun  8 00:17 synthetic_gpu.csv
+-rw-r--r-- 1 fraphael cme213  424 Jun  8 00:17 synthetic_mpi.csv
+-rw-r--r-- 1 fraphael cme213 109K Jun  7 23:59 tsukuba_gt.pgm
+-rw-r--r-- 1 fraphael cme213 325K Jun  7 23:59 tsukuba_gt.ppm
+-rw-r--r-- 1 fraphael cme213 109K Jun  8 00:17 tsukuba_mpi_np4.pgm
+-rw-r--r-- 1 fraphael cme213 325K Jun  8 00:17 tsukuba_mpi_np4.ppm
+-rw-r--r-- 1 fraphael cme213 109K Jun  8 00:17 tsukuba_mpi_np4_left.pgm
+-rw-r--r-- 1 fraphael cme213 109K Jun  8 00:17 tsukuba_mpi_np4_right.pgm
+-rw-r--r-- 1 fraphael cme213 109K Jun  8 00:17 tsukuba_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 325K Jun  8 00:17 tsukuba_tiled.ppm
+-rw-r--r-- 1 fraphael cme213 163K Jun  7 23:59 venus_gt.pgm
+-rw-r--r-- 1 fraphael cme213 487K Jun  7 23:59 venus_gt.ppm
+-rw-r--r-- 1 fraphael cme213 163K Jun  8 00:17 venus_mpi_np4.pgm
+-rw-r--r-- 1 fraphael cme213 487K Jun  8 00:17 venus_mpi_np4.ppm
+-rw-r--r-- 1 fraphael cme213 163K Jun  8 00:17 venus_mpi_np4_left.pgm
+-rw-r--r-- 1 fraphael cme213 163K Jun  8 00:17 venus_mpi_np4_right.pgm
+-rw-r--r-- 1 fraphael cme213 163K Jun  8 00:17 venus_tiled.pgm
+-rw-r--r-- 1 fraphael cme213 487K Jun  8 00:17 venus_tiled.ppm
+Done at Mon Jun  8 00:17:28 PDT 2026

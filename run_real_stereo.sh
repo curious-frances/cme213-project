@@ -3,10 +3,11 @@
 #SBATCH --gres gpu:4
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=00:10:00
+#SBATCH --time=00:20:00
 #
-# Run the stereo SAD pipeline on real Middlebury image pairs.
-# Prerequisites: run ./download_stereo_data.sh from a login node first.
+# Run the stereo SAD pipeline on real Middlebury image pairs (small + large)
+# and on synthetic images at large sizes for scaling comparison.
+# Prerequisites: run sbatch download_stereo_data.sh first.
 
 set -e
 
@@ -73,6 +74,40 @@ run_mpi_scene() {
 }
 
 # -----------------------------------------------------------------------
+# Helper: run single-GPU on a synthetic image at given size
+# -----------------------------------------------------------------------
+run_gpu_synthetic() {
+    local label="$1"
+    local height="$2"
+    local width="$3"
+    local max_disp="${4:-64}"
+    local radius="${5:-2}"
+
+    echo "=== GPU synthetic: ${height}x${width} (max_disp=$max_disp) ==="
+    ./main_gpu \
+        --height "$height" --width "$width" \
+        --disp 24 --max-disp "$max_disp" --radius "$radius" \
+        --repeats 10 --no-cpu \
+        --csv "$RESULTS/synthetic_gpu.csv"
+    echo
+}
+
+run_mpi_synthetic() {
+    local height="$1"
+    local width="$2"
+    local nranks="${3:-4}"
+    local max_disp="${4:-64}"
+
+    echo "=== MPI ($nranks ranks) synthetic: ${height}x${width} (max_disp=$max_disp) ==="
+    mpirun -np "$nranks" ./main_mpi \
+        --height "$height" --width "$width" \
+        --disp 24 --max-disp "$max_disp" --radius 2 \
+        --repeats 5 \
+        --csv "$RESULTS/synthetic_mpi.csv"
+    echo
+}
+
+# -----------------------------------------------------------------------
 # Run scenes
 # -----------------------------------------------------------------------
 echo "Starting real-image stereo evaluation at $(date)"
@@ -80,12 +115,30 @@ echo "Node: $(hostname)"
 nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -4
 echo
 
+echo "======== Small real images (Middlebury 2001) ========"
 run_gpu_scene  tsukuba  16
 run_gpu_scene  sawtooth 20
 run_gpu_scene  venus    20
 
 run_mpi_scene  tsukuba  16 4
 run_mpi_scene  venus    20 4
+
+echo "======== Large real image (Middlebury 2014, ~1482x1000) ========"
+run_gpu_scene  motorcycle 64
+run_mpi_scene  motorcycle 64 1
+run_mpi_scene  motorcycle 64 2
+run_mpi_scene  motorcycle 64 4
+
+echo "======== Synthetic large images ========"
+run_gpu_synthetic "960x1280"   960  1280 64
+run_gpu_synthetic "1920x2560" 1920 2560 64
+
+for nranks in 1 2 4; do
+    run_mpi_synthetic 960  1280 $nranks 64
+done
+for nranks in 1 2 4; do
+    run_mpi_synthetic 1920 2560 $nranks 64
+done
 
 echo
 echo "=== All results in $RESULTS/ ==="

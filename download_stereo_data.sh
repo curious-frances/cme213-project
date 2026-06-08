@@ -98,6 +98,28 @@ echo
 prepare_venus
 
 echo
+# -----------------------------------------------------------------
+# Middlebury 2014 Motorcycle-perfect (~2964x2000 full-res PNG)
+# Downscaled 2x → ~1482x1000 for a >1000-pixel real-image test
+# Suggested max_disp=64
+# -----------------------------------------------------------------
+prepare_motorcycle() {
+    local dir="$DATADIR/motorcycle"
+    mkdir -p "$dir"
+    fetch "https://vision.middlebury.edu/stereo/data/scenes2014/datasets/Motorcycle-perfect/im0.png" \
+          "$dir/im0.png"
+    fetch "https://vision.middlebury.edu/stereo/data/scenes2014/datasets/Motorcycle-perfect/im1.png" \
+          "$dir/im1.png"
+    echo "  Converting + downscaling 2x (this may take ~30s in pure Python) ..."
+    python3 convert_png_to_pgm.py \
+            "$dir/im0.png" "$dir/im1.png" \
+            "$dir/left.pgm" "$dir/right.pgm" \
+            --scale 2
+    echo "  motorcycle ready: $dir/left.pgm  $dir/right.pgm"
+}
+
+prepare_motorcycle
+
 echo "=== Summary ==="
 for scene in tsukuba sawtooth venus; do
     f="$DATADIR/$scene/left.pgm"

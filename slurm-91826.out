@@ -1,0 +1,184 @@
+make: 'main_mpi' is up to date.
+=== Correctness: synthetic 480x640, 1/2/4 ranks ===
+--- 1 rank(s) ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 0.0422 ms
+  Halo exchange  : 4e-05 ms
+  GPU kernel max : 0.588843 ms
+  Kernel wall    : 3.21532 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.08916 ms
+  Total comm     : 0.1314 ms
+  Comm fraction  : 3.92624 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- 2 rank(s) ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 0.212775 ms
+  Halo exchange  : 0.033173 ms
+  GPU kernel max : 0.302048 ms
+  Kernel wall    : 2.42519 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.439285 ms
+  Total comm     : 0.685233 ms
+  Comm fraction  : 22.0302 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+--- 4 rank(s) ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 480 x 640
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~120
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 0.331811 ms
+  Halo exchange  : 0.034716 ms
+  GPU kernel max : 0.160843 ms
+  Kernel wall    : 2.23823 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.585163 ms
+  Total comm     : 0.95169 ms
+  Comm fraction  : 29.8343 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+=== Correctness: synthetic 960x1280, 4 ranks ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 1.56996 ms
+  Halo exchange  : 0.041389 ms
+  GPU kernel max : 0.610304 ms
+  Kernel wall    : 4.00589 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.981407 ms
+  Total comm     : 2.59275 ms
+  Comm fraction  : 39.2922 %
+----------------------------------------------------
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+----------------------------------------------------
+====================================================
+
+
+=== Timing: 960x1280, 1/2/4 ranks (scatter vs old bcast) ===
+--- 1 rank(s) ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=1)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~960
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 0.092576 ms
+  Halo exchange  : 4e-05 ms
+  GPU kernel max : 2.3693 ms
+  Kernel wall    : 28.51 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.417495 ms
+  Total comm     : 0.510111 ms
+  Comm fraction  : 1.75779 %
+----------------------------------------------------
+====================================================
+
+--- 2 rank(s) ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=2)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~480
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 0.761338 ms
+  Halo exchange  : 0.019197 ms
+  GPU kernel max : 1.1913 ms
+  Kernel wall    : 15.5795 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.615331 ms
+  Total comm     : 1.39587 ms
+  Comm fraction  : 8.2229 %
+----------------------------------------------------
+====================================================
+
+--- 4 rank(s) ---
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 960 x 1280
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~240
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 1.5425 ms
+  Halo exchange  : 0.043612 ms
+  GPU kernel max : 0.60911 ms
+  Kernel wall    : 8.1899 ms  (barrier-to-barrier)
+  Gather (disp)  : 0.970175 ms
+  Total comm     : 2.55629 ms
+  Comm fraction  : 23.7879 %
+----------------------------------------------------
+====================================================
+
+
+=== Real images: motorcycle 1482x1000, 4 ranks ===
+
+====================================================
+  MPI+CUDA Stereo SAD  (nranks=4)
+====================================================
+  Image          : 1000 x 1482
+  Max disp/radius: 64 / 2
+  Rows per rank  : ~250
+  GPUs visible   : 4
+----------------------------------------------------
+  Scatter (input): 1.69434 ms
+  Halo exchange  : 0.045907 ms
+  GPU kernel max : 0.525094 ms
+  Kernel wall    : 5.6997 ms  (barrier-to-barrier)
+  Gather (disp)  : 1.14603 ms
+  Total comm     : 2.88628 ms
+  Comm fraction  : 33.6162 %
+----------------------------------------------------
+====================================================
+
+
+Done at Mon Jun  8 00:31:33 PDT 2026

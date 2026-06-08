@@ -197,6 +197,30 @@ def write_pgm(path, width, height, gray_bytes):
 
 
 # ---------------------------------------------------------------------------
+# Integer box-average downscale (no numpy needed)
+# ---------------------------------------------------------------------------
+
+def box_downsample(gray_bytes, width, height, factor):
+    """Downsample by integer factor using box (average) filter."""
+    if factor == 1:
+        return width, height, gray_bytes
+    ow = width  // factor
+    oh = height // factor
+    src = gray_bytes
+    out = bytearray(ow * oh)
+    f2  = factor * factor
+    for r in range(oh):
+        for c in range(ow):
+            s = 0
+            for dr in range(factor):
+                row_off = (r * factor + dr) * width
+                for dc in range(factor):
+                    s += src[row_off + c * factor + dc]
+            out[r * ow + c] = s // f2
+    return ow, oh, bytes(out)
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -214,7 +238,7 @@ def load_image_as_gray(path):
             return _read_pgm_ppm(path)
 
 
-def convert_pair(left_in, right_in, left_out, right_out):
+def convert_pair(left_in, right_in, left_out, right_out, scale=1):
     print(f"Loading {left_in} ...")
     w1, h1, gray1 = load_image_as_gray(left_in)
     print(f"Loading {right_in} ...")
@@ -223,24 +247,35 @@ def convert_pair(left_in, right_in, left_out, right_out):
     if (w1, h1) != (w2, h2):
         raise ValueError(f"Left ({w1}x{h1}) and right ({w2}x{h2}) have different sizes")
 
-    write_pgm(left_out, w1, h1, gray1)
+    if scale > 1:
+        print(f"  Downsampling {w1}x{h1} by {scale}x ...")
+        w1, h1, gray1 = box_downsample(gray1, w1, h1, scale)
+        w2, h2, gray2 = box_downsample(gray2, w2, h2, scale)
+
+    write_pgm(left_out,  w1, h1, gray1)
     write_pgm(right_out, w2, h2, gray2)
 
 
 def main():
-    if len(sys.argv) == 5:
-        convert_pair(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
-    elif len(sys.argv) == 3:
-        # auto-name outputs
-        base_l = os.path.splitext(os.path.basename(sys.argv[1]))[0]
-        base_r = os.path.splitext(os.path.basename(sys.argv[2]))[0]
-        convert_pair(sys.argv[1], sys.argv[2],
-                     base_l + '.pgm', base_r + '.pgm')
-    else:
-        print("Usage: python3 convert_png_to_pgm.py <left> <right> [out_left.pgm out_right.pgm]")
-        print("       Converts PNG/PPM stereo pairs to 8-bit grayscale P5 PGM.")
-        print("       If output names are omitted, replaces the extension with .pgm")
-        sys.exit(1)
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Convert PNG/PPM stereo pairs to 8-bit grayscale P5 PGM.")
+    parser.add_argument("left_in")
+    parser.add_argument("right_in")
+    parser.add_argument("left_out",  nargs="?")
+    parser.add_argument("right_out", nargs="?")
+    parser.add_argument("--scale", type=int, default=1, metavar="N",
+                        help="Integer box-average downscale factor (default 1 = no scaling)")
+    args = parser.parse_args()
+
+    if args.left_out is None:
+        args.left_out  = os.path.splitext(os.path.basename(args.left_in))[0]  + ".pgm"
+        args.right_out = os.path.splitext(os.path.basename(args.right_in))[0] + ".pgm"
+    elif args.right_out is None:
+        parser.error("Provide both output names or neither.")
+
+    convert_pair(args.left_in, args.right_in,
+                 args.left_out, args.right_out, scale=args.scale)
 
 
 if __name__ == '__main__':

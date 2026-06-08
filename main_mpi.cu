@@ -74,7 +74,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::vector<uint8_t> full_left(H * W, 0), full_right(H * W, 0);
+    // Only rank 0 needs the full image buffers.
+    std::vector<uint8_t> full_left(rank == 0 ? H * W : 0);
+    std::vector<uint8_t> full_right(rank == 0 ? H * W : 0);
     if (rank == 0) {
         if (using_real) {
             Image tmp_l = load_pgm(opt.left_path);
@@ -92,30 +94,70 @@ int main(int argc, char** argv) {
         }
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-    double t0_bcast = MPI_Wtime();
-    MPI_Bcast(full_left.data(),  H * W, MPI_UINT8_T, 0, MPI_COMM_WORLD);
-    MPI_Bcast(full_right.data(), H * W, MPI_UINT8_T, 0, MPI_COMM_WORLD);
-    double t_bcast = MPI_Wtime() - t0_bcast;
-
+    // Row decomposition
     int base_rows  = H / nranks;
     int remainder  = H % nranks;
     int row_start  = rank * base_rows + std::min(rank, remainder);
     int local_rows = base_rows + (rank < remainder ? 1 : 0);
     int row_end    = row_start + local_rows;
 
-    int halo_start = std::max(0, row_start - p.radius);
-    int halo_end   = std::min(H, row_end   + p.radius);
-    int halo_top   = row_start - halo_start;  // local index of first owned row
-    int slab_H     = halo_end - halo_start;
+    // Halo rows needed above/below the owned region (clamped at image boundary)
+    int top_halo_rows = std::min(p.radius, row_start);
+    int bot_halo_rows = std::min(p.radius, H - row_end);
+    int halo_top      = top_halo_rows;
+    int slab_H        = top_halo_rows + local_rows + bot_halo_rows;
+
+    // Scatter: send only each rank's owned rows (no halo), rank 0 is root
+    std::vector<int> sc_counts(nranks), sc_displs(nranks);
+    sc_displs[0] = 0;
+    for (int i = 0; i < nranks; ++i) {
+        int lh = base_rows + (i < remainder ? 1 : 0);
+        sc_counts[i] = lh * W;
+        if (i > 0) sc_displs[i] = sc_displs[i-1] + sc_counts[i-1];
+    }
 
     Image slab_l(slab_H, W), slab_r(slab_H, W);
-    std::copy(full_left.data()  + halo_start * W,
-              full_left.data()  + halo_end   * W,
-              slab_l.data);
-    std::copy(full_right.data() + halo_start * W,
-              full_right.data() + halo_end   * W,
-              slab_r.data);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    double t0_scatter = MPI_Wtime();
+    // Scatter owned rows into the middle of each rank's slab (leaving halo slots empty).
+    MPI_Scatterv(rank == 0 ? full_left.data()  : nullptr,
+                 sc_counts.data(), sc_displs.data(), MPI_UINT8_T,
+                 slab_l.data + top_halo_rows * W, local_rows * W, MPI_UINT8_T,
+                 0, MPI_COMM_WORLD);
+    MPI_Scatterv(rank == 0 ? full_right.data() : nullptr,
+                 sc_counts.data(), sc_displs.data(), MPI_UINT8_T,
+                 slab_r.data + top_halo_rows * W, local_rows * W, MPI_UINT8_T,
+                 0, MPI_COMM_WORLD);
+    double t_scatter = MPI_Wtime() - t0_scatter;
+
+    // Halo exchange: each rank exchanges its boundary rows with its neighbors.
+    // TAG_DOWN: data flowing toward higher row indices (rank r -> rank r+1)
+    // TAG_UP:   data flowing toward lower  row indices (rank r -> rank r-1)
+    const int TAG_DOWN = 0, TAG_UP = 1;
+
+    double t0_halo = MPI_Wtime();
+    for (uint8_t* slab : {slab_l.data, slab_r.data}) {
+        // Send our first owned rows up to rank-1 (their bottom halo);
+        // receive rank-1's last owned rows as our top halo.
+        if (rank > 0) {
+            MPI_Sendrecv(slab + top_halo_rows * W,  top_halo_rows * W, MPI_UINT8_T,
+                         rank - 1, TAG_UP,
+                         slab,                        top_halo_rows * W, MPI_UINT8_T,
+                         rank - 1, TAG_DOWN,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+        // Send our last owned rows down to rank+1 (their top halo);
+        // receive rank+1's first owned rows as our bottom halo.
+        if (rank < nranks - 1) {
+            MPI_Sendrecv(slab + (top_halo_rows + local_rows - bot_halo_rows) * W,
+                         bot_halo_rows * W, MPI_UINT8_T, rank + 1, TAG_DOWN,
+                         slab + (top_halo_rows + local_rows) * W,
+                         bot_halo_rows * W, MPI_UINT8_T, rank + 1, TAG_UP,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+    }
+    double t_halo = MPI_Wtime() - t0_halo;
 
     DisparityMap slab_disp(slab_H, W);
 
@@ -150,7 +192,7 @@ int main(int argc, char** argv) {
     double t_gather = MPI_Wtime() - t0_gather;
 
     if (rank == 0) {
-        double t_comm_total = (t_bcast + t_gather) * 1e3;  // ms
+        double t_comm_total = (t_scatter + t_halo + t_gather) * 1e3;  // ms
         double t_wall_ms    = t_kernel_wall * 1e3;
 
         std::cout << "\n====================================================\n";
@@ -162,10 +204,11 @@ int main(int argc, char** argv) {
                   << (remainder ? " (some ranks get +1)" : "") << "\n";
         std::cout << "  GPUs visible   : " << num_devices << "\n";
         std::cout << "----------------------------------------------------\n";
-        std::cout << "  Bcast (input)  : " << t_bcast  * 1e3 << " ms\n";
+        std::cout << "  Scatter (input): " << t_scatter * 1e3 << " ms\n";
+        std::cout << "  Halo exchange  : " << t_halo    * 1e3 << " ms\n";
         std::cout << "  GPU kernel max : " << max_gpu_ms       << " ms\n";
         std::cout << "  Kernel wall    : " << t_wall_ms        << " ms  (barrier-to-barrier)\n";
-        std::cout << "  Gather (disp)  : " << t_gather * 1e3 << " ms\n";
+        std::cout << "  Gather (disp)  : " << t_gather  * 1e3 << " ms\n";
         std::cout << "  Total comm     : " << t_comm_total     << " ms\n";
         std::cout << "  Comm fraction  : "
                   << 100.0 * t_comm_total / (t_comm_total + t_wall_ms) << " %\n";
@@ -204,13 +247,14 @@ int main(int argc, char** argv) {
             fin.close();
             std::ofstream csv(opt.csv_path, std::ios::app);
             if (new_file)
-                csv << "nranks,height,width,max_disp,radius,kernel_ms,bcast_ms,"
-                       "gather_ms,comm_ms,wall_ms\n";
+                csv << "nranks,height,width,max_disp,radius,kernel_ms,scatter_ms,"
+                       "halo_ms,gather_ms,comm_ms,wall_ms\n";
             csv << nranks << "," << H << "," << W << ","
                 << p.max_disp << "," << p.radius << ","
                 << max_gpu_ms << ","
-                << t_bcast  * 1e3 << ","
-                << t_gather * 1e3 << ","
+                << t_scatter * 1e3 << ","
+                << t_halo    * 1e3 << ","
+                << t_gather  * 1e3 << ","
                 << t_comm_total << ","
                 << t_wall_ms << "\n";
         }

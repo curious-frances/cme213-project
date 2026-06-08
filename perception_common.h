@@ -9,7 +9,7 @@
 #include <string>
 
 using pixel_t  = uint8_t;
-using disp_t   = int;
+using disp_t   = float;   // sub-pixel disparity (parabolic refinement)
 using score_t  = uint32_t;
 
 #define DISP_TOL    1
@@ -63,6 +63,14 @@ struct DisparityMap {
   DisparityMap(DisparityMap&& o) noexcept
       : height(o.height), width(o.width), data(o.data) {
     o.data = nullptr;
+  }
+  DisparityMap& operator=(DisparityMap&& o) noexcept {
+    if (this != &o) {
+      delete[] data;
+      height = o.height; width = o.width; data = o.data;
+      o.data = nullptr;
+    }
+    return *this;
   }
 
   disp_t& at(int r, int c)       { return data[r * width + c]; }

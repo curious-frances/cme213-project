@@ -181,13 +181,13 @@ int main(int argc, char** argv) {
         if (i > 0) displs[i] = displs[i-1] + sendcounts[i-1];
     }
 
-    std::vector<int> full_disp(rank == 0 ? H * W : 0);
+    std::vector<disp_t> full_disp(rank == 0 ? H * W : 0);
 
     MPI_Barrier(MPI_COMM_WORLD);
     double t0_gather = MPI_Wtime();
     MPI_Gatherv(slab_disp.data + halo_top * W,
-                local_rows * W, MPI_INT,
-                full_disp.data(), sendcounts.data(), displs.data(), MPI_INT,
+                local_rows * W, MPI_FLOAT,
+                full_disp.data(), sendcounts.data(), displs.data(), MPI_FLOAT,
                 0, MPI_COMM_WORLD);
     double t_gather = MPI_Wtime() - t0_gather;
 

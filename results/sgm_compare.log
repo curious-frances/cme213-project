@@ -1,0 +1,210 @@
+SGM vs SAD final comparison (P1=200 P2=500)  Mon Jun  8 14:30:26 PDT 2026
+Quadro RTX 6000
+######## tsukuba (max_disp=16) ########
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 288 x 384
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 16
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.0827008 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.09648 ms
+    FPS   : 10364.8
+    Tput  : 857.181 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.9021 px
+    Bad-px rate : 15.4066 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.0483 ms
+    FPS   : 20683.0369
+    Tput  : 1710.5037 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.9021 px
+    Bad-px rate : 15.4066 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.2160 ms
+    FPS   : 4628.8069
+    Tput  : 382.8060 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.9631 px
+    Bad-px rate : 20.4297 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_tiled.pgm/.ppm
+  Saved: disp_gt.pgm/.ppm
+  [GPU tiled + LR-check]
+    Mean  : 0.3904 ms
+    FPS   : 2561.1814
+    Tput  : 211.8118 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.6418 px
+    Bad-px rate : 12.8372 %  (|err| > 1 px)
+    Coverage    : 83.5603 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_tiled_lrc.pgm/.ppm
+  SGM penalties: P1=200  P2=500
+  [GPU SGM (4-path)]
+    Mean  : 0.8827 ms
+    FPS   : 1132.9031
+    Tput  : 93.6920 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.4805 px
+    Bad-px rate : 7.3857 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_sgm.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/sgm_compare.csv
+
+######## sawtooth (max_disp=20) ########
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 380 x 434
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 20
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.15416 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.109843 ms
+    FPS   : 9103.89
+    Tput  : 1403.46 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.2956 px
+    Bad-px rate : 13.5187 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.0850 ms
+    FPS   : 11759.1728
+    Tput  : 1812.7941 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.2956 px
+    Bad-px rate : 13.5187 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.2230 ms
+    FPS   : 4483.5651
+    Tput  : 691.1864 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.2459 px
+    Bad-px rate : 13.3240 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_tiled.pgm/.ppm
+  Saved: disp_gt.pgm/.ppm
+  [GPU tiled + LR-check]
+    Mean  : 0.4000 ms
+    FPS   : 2500.2600
+    Tput  : 385.4401 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.6148 px
+    Bad-px rate : 6.4948 %  (|err| > 1 px)
+    Coverage    : 89.0371 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_tiled_lrc.pgm/.ppm
+  SGM penalties: P1=200  P2=500
+  [GPU SGM (4-path)]
+    Mean  : 1.2617 ms
+    FPS   : 792.5759
+    Tput  : 122.1835 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.1356 px
+    Bad-px rate : 10.5445 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_sgm.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/sgm_compare.csv
+
+######## venus (max_disp=20) ########
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 383 x 434
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 20
+  Repeats      : 10
+----------------------------------------------------
+  Saved: left.pgm, right.pgm
+  Compute (approx): 0.15539 GOps/frame
+
+  [GPU basic]
+    Mean  : 0.110755 ms
+    FPS   : 9028.92
+    Tput  : 1403 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.6123 px
+    Bad-px rate : 20.7175 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_basic.pgm, disp_basic.ppm
+  [GPU smem]
+    Mean  : 0.0852 ms
+    FPS   : 11734.0041
+    Tput  : 1823.3469 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.6123 px
+    Bad-px rate : 20.7175 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_smem.pgm, disp_smem.ppm
+  [GPU tiled]
+    Mean  : 0.2250 ms
+    FPS   : 4443.7174
+    Tput  : 690.5092 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 1.5387 px
+    Bad-px rate : 20.4359 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_tiled.pgm/.ppm
+  Saved: disp_gt.pgm/.ppm
+  [GPU tiled + LR-check]
+    Mean  : 0.4014 ms
+    FPS   : 2491.4492
+    Tput  : 387.1463 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.8098 px
+    Bad-px rate : 10.7822 %  (|err| > 1 px)
+    Coverage    : 81.8087 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_tiled_lrc.pgm/.ppm
+  SGM penalties: P1=200  P2=500
+  [GPU SGM (4-path)]
+    Mean  : 1.2632 ms
+    FPS   : 791.6583
+    Tput  : 123.0158 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.9377 px
+    Bad-px rate : 9.1270 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  Saved: disp_sgm.pgm/.ppm
+====================================================
+
+  Benchmark data written to: results/sgm_compare.csv
+
+=== Done ===

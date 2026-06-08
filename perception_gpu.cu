@@ -17,7 +17,7 @@
 
 __global__ void kernel_basic(const uint8_t* __restrict__ left,
                              const uint8_t* __restrict__ right,
-                             int* disp_out,
+                             disp_t* disp_out,
                              int H, int W, int max_disp, int radius) {
   int c = blockIdx.x * blockDim.x + threadIdx.x;
   int r = blockIdx.y * blockDim.y + threadIdx.y;
@@ -51,7 +51,7 @@ __global__ void kernel_basic(const uint8_t* __restrict__ left,
 
 __global__ void kernel_smem(const uint8_t* __restrict__ left,
                             const uint8_t* __restrict__ right,
-                            int* disp_out,
+                            disp_t* disp_out,
                             int H, int W, int max_disp, int radius) {
   int block_r0 = blockIdx.y * SMEM_BH;
   int block_c0 = blockIdx.x * SMEM_BW;
@@ -132,7 +132,7 @@ __global__ void kernel_smem(const uint8_t* __restrict__ left,
 
 __global__ void kernel_tiled(const uint8_t* __restrict__ left,
                              const uint8_t* __restrict__ right,
-                             int* disp_out,
+                             disp_t* disp_out,
                              int H, int W, int max_disp, int radius) {
   int c = blockIdx.x * TILED_BW + threadIdx.x;
   int r = blockIdx.y * TILED_BH + threadIdx.y;
@@ -165,14 +165,90 @@ __global__ void kernel_tiled(const uint8_t* __restrict__ left,
   for (int d = 0; d < TILED_MAX_DISP; ++d) {
     if (d < max_disp && sad[d] < best_sad) { best_sad = sad[d]; best_d = d; }
   }
-  disp_out[r * W + c] = best_d;
+
+  // Sub-pixel refinement: fit a parabola through the SAD values at the winning
+  // disparity and its two neighbours, then take the analytic minimum. This
+  // recovers fractional disparity at near-zero extra cost because the whole
+  // sad[] cost curve is already resident in registers. The neighbours must
+  // exist (interior winner) and the curve must be convex at the minimum.
+  disp_t result = (disp_t)best_d;
+  if (best_d > 0 && best_d < max_disp - 1) {
+    float c0 = (float)sad[best_d - 1];
+    float c1 = (float)sad[best_d];
+    float c2 = (float)sad[best_d + 1];
+    float denom = c0 - 2.0f * c1 + c2;
+    if (denom > 0.0f) {
+      float delta = 0.5f * (c0 - c2) / denom;   // in (-0.5, 0.5)
+      result = (disp_t)best_d + delta;
+    }
+  }
+  disp_out[r * W + c] = result;
+}
+
+// Right-reference disparity for the left-right consistency check. Identical to
+// kernel_tiled except the reference patch is taken from the RIGHT image and the
+// match is searched in the LEFT image at column c+d (mirrored search direction).
+__global__ void kernel_tiled_right(const uint8_t* __restrict__ left,
+                                   const uint8_t* __restrict__ right,
+                                   disp_t* disp_out,
+                                   int H, int W, int max_disp, int radius) {
+  int c = blockIdx.x * TILED_BW + threadIdx.x;
+  int r = blockIdx.y * TILED_BH + threadIdx.y;
+  if (r >= H || c >= W) return;
+
+  bool at_border = (r < radius) || (r >= H - radius) ||
+                   (c < radius) || (c >= W - radius);
+  bool left_oob = (c + (max_disp - 1) + radius >= W);
+  if (at_border || left_oob) { disp_out[r * W + c] = 0; return; }
+
+  unsigned int sad[TILED_MAX_DISP];
+  #pragma unroll
+  for (int d = 0; d < TILED_MAX_DISP; ++d) sad[d] = 0;
+
+  for (int dr = -radius; dr <= radius; ++dr) {
+    int gr = r + dr;
+    for (int dc = -radius; dc <= radius; ++dc) {
+      int rv = right[gr * W + c + dc];
+      #pragma unroll
+      for (int d = 0; d < TILED_MAX_DISP; ++d) {
+        int lv = left[gr * W + c + dc + d];
+        sad[d] += (unsigned int)abs(rv - lv);
+      }
+    }
+  }
+
+  unsigned int best_sad = 0xFFFFFFFFu;
+  int          best_d   = 0;
+  #pragma unroll
+  for (int d = 0; d < TILED_MAX_DISP; ++d) {
+    if (d < max_disp && sad[d] < best_sad) { best_sad = sad[d]; best_d = d; }
+  }
+  disp_out[r * W + c] = (disp_t)best_d;
+}
+
+// Left-right consistency check. For each left pixel its disparity dL maps to a
+// right pixel at column c-dL; if the right-reference disparity there disagrees
+// by more than LRC_TOL the match is an occlusion/mismatch and is rejected by
+// writing a negative sentinel (downstream metrics treat <0 as "no estimate").
+#define LRC_TOL 1.0f
+__global__ void kernel_lr_check(disp_t* dispL, const disp_t* __restrict__ dispR,
+                                int H, int W) {
+  int c = blockIdx.x * blockDim.x + threadIdx.x;
+  int r = blockIdx.y * blockDim.y + threadIdx.y;
+  if (r >= H || c >= W) return;
+
+  disp_t dL = dispL[r * W + c];
+  int    xr = c - (int)lrintf(dL);
+  if (xr < 0 || xr >= W) { dispL[r * W + c] = (disp_t)(-1); return; }
+  disp_t dR = dispR[r * W + xr];
+  if (fabsf(dL - dR) > LRC_TOL) dispL[r * W + c] = (disp_t)(-1);
 }
 
 static float launch_and_time(void (*launcher)(const uint8_t*, const uint8_t*,
-                                               int*, int, int, int, int,
+                                               disp_t*, int, int, int, int,
                                                dim3, dim3),
                              const uint8_t* d_left, const uint8_t* d_right,
-                             int* d_disp, int H, int W, int max_disp, int radius,
+                             disp_t* d_disp, int H, int W, int max_disp, int radius,
                              dim3 grid, dim3 block, int repeats) {
   cudaEvent_t t0, t1;
   CUDA_CHECK(cudaEventCreate(&t0));
@@ -194,44 +270,76 @@ static float launch_and_time(void (*launcher)(const uint8_t*, const uint8_t*,
   return ms / repeats;
 }
 
-static void launch_basic(const uint8_t* l, const uint8_t* r, int* d,
+static void launch_basic(const uint8_t* l, const uint8_t* r, disp_t* d,
                          int H, int W, int md, int rad, dim3 grid, dim3 blk) {
   kernel_basic<<<grid, blk>>>(l, r, d, H, W, md, rad);
 }
-static void launch_smem(const uint8_t* l, const uint8_t* r, int* d,
+static void launch_smem(const uint8_t* l, const uint8_t* r, disp_t* d,
                         int H, int W, int md, int rad, dim3 grid, dim3 blk) {
   kernel_smem<<<grid, blk>>>(l, r, d, H, W, md, rad);
 }
-static void launch_tiled(const uint8_t* l, const uint8_t* r, int* d,
+static void launch_tiled(const uint8_t* l, const uint8_t* r, disp_t* d,
                          int H, int W, int md, int rad, dim3 grid, dim3 blk) {
   kernel_tiled<<<grid, blk>>>(l, r, d, H, W, md, rad);
 }
 
+// Host-device transfer wrapper.
+//
+// Optimization (final report): the host-side image and disparity buffers are
+// page-locked with cudaHostRegister so the H2D and D2H copies use true DMA on a
+// dedicated CUDA stream instead of going through a staging copy of pageable
+// memory. The two input images are independent, so their H2D copies are issued
+// back-to-back on the same stream and complete before the kernel launches. This
+// shrinks the host-device transfer time that shows up inside the MPI "Wall"
+// time, which matters most for large images and a streaming (real-time) pipeline.
 struct GpuBuffers {
-  uint8_t* d_left  = nullptr;
-  uint8_t* d_right = nullptr;
-  int*     d_disp  = nullptr;
-  int      H, W;
+  uint8_t*    d_left  = nullptr;
+  uint8_t*    d_right = nullptr;
+  disp_t*     d_disp  = nullptr;
+  int         H, W;
+  cudaStream_t stream = nullptr;
+  const uint8_t* h_left;
+  const uint8_t* h_right;
 
   GpuBuffers(const Image& left, const Image& right) : H(left.height), W(left.width) {
     size_t img_bytes  = (size_t)H * W * sizeof(uint8_t);
-    size_t disp_bytes = (size_t)H * W * sizeof(int);
+    size_t disp_bytes = (size_t)H * W * sizeof(disp_t);
+
+    CUDA_CHECK(cudaStreamCreate(&stream));
     CUDA_CHECK(cudaMalloc(&d_left,  img_bytes));
     CUDA_CHECK(cudaMalloc(&d_right, img_bytes));
     CUDA_CHECK(cudaMalloc(&d_disp,  disp_bytes));
-    CUDA_CHECK(cudaMemcpy(d_left,  left.data,  img_bytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_right, right.data, img_bytes, cudaMemcpyHostToDevice));
+
+    // Page-lock the host input buffers in place so the copies are async DMA.
+    h_left  = left.data;
+    h_right = right.data;
+    CUDA_CHECK(cudaHostRegister((void*)h_left,  img_bytes, cudaHostRegisterDefault));
+    CUDA_CHECK(cudaHostRegister((void*)h_right, img_bytes, cudaHostRegisterDefault));
+
+    CUDA_CHECK(cudaMemcpyAsync(d_left,  h_left,  img_bytes,
+                               cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_right, h_right, img_bytes,
+                               cudaMemcpyHostToDevice, stream));
+    // Inputs must be resident before any kernel runs on the default stream.
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaHostUnregister((void*)h_left));
+    CUDA_CHECK(cudaHostUnregister((void*)h_right));
   }
 
   void copy_disp_to(DisparityMap& dst) const {
-    CUDA_CHECK(cudaMemcpy(dst.data, d_disp,
-                          (size_t)H * W * sizeof(int), cudaMemcpyDeviceToHost));
+    size_t disp_bytes = (size_t)H * W * sizeof(disp_t);
+    CUDA_CHECK(cudaHostRegister(dst.data, disp_bytes, cudaHostRegisterDefault));
+    CUDA_CHECK(cudaMemcpyAsync(dst.data, d_disp, disp_bytes,
+                               cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaHostUnregister(dst.data));
   }
 
   ~GpuBuffers() {
     cudaFree(d_left);
     cudaFree(d_right);
     cudaFree(d_disp);
+    if (stream) cudaStreamDestroy(stream);
   }
 };
 
@@ -273,4 +381,48 @@ float sad_stereo_gpu_tiled(const Image& left, const Image& right,
                               left.height, left.width, max_disp, radius, grid, block, repeats);
   buf.copy_disp_to(disp_out);
   return ms;
+}
+
+// Tiled SAD with a left-right consistency check. Computes the left- and
+// right-reference disparity maps and rejects pixels where they disagree. The
+// timed region covers all three passes (left tiled + right tiled + check) so
+// the reported cost is the full robust pipeline, not just the base kernel.
+float sad_stereo_gpu_tiled_lrc(const Image& left, const Image& right,
+                               DisparityMap& disp_out,
+                               int max_disp, int radius, int repeats) {
+  CHECK(max_disp <= TILED_MAX_DISP, "sad_stereo_gpu_tiled_lrc: max_disp exceeds TILED_MAX_DISP");
+  GpuBuffers buf(left, right);
+  int H = left.height, W = left.width;
+
+  disp_t* d_dispR = nullptr;
+  CUDA_CHECK(cudaMalloc(&d_dispR, (size_t)H * W * sizeof(disp_t)));
+
+  dim3 block(TILED_BW, TILED_BH);
+  dim3 grid((W + block.x - 1) / block.x, (H + block.y - 1) / block.y);
+
+  auto run_once = [&]() {
+    kernel_tiled      <<<grid, block>>>(buf.d_left, buf.d_right, buf.d_disp, H, W, max_disp, radius);
+    kernel_tiled_right<<<grid, block>>>(buf.d_left, buf.d_right, d_dispR,    H, W, max_disp, radius);
+    kernel_lr_check   <<<grid, block>>>(buf.d_disp, d_dispR, H, W);
+  };
+
+  cudaEvent_t t0, t1;
+  CUDA_CHECK(cudaEventCreate(&t0));
+  CUDA_CHECK(cudaEventCreate(&t1));
+  run_once();
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  CUDA_CHECK(cudaEventRecord(t0));
+  for (int i = 0; i < repeats; ++i) run_once();
+  CUDA_CHECK(cudaEventRecord(t1));
+  CUDA_CHECK(cudaEventSynchronize(t1));
+
+  float ms = 0;
+  CUDA_CHECK(cudaEventElapsedTime(&ms, t0, t1));
+  CUDA_CHECK(cudaEventDestroy(t0));
+  CUDA_CHECK(cudaEventDestroy(t1));
+
+  buf.copy_disp_to(disp_out);
+  cudaFree(d_dispR);
+  return ms / repeats;
 }

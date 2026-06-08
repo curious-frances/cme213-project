@@ -18,6 +18,8 @@ double compute_bad_pixel_rate(const DisparityMap& estimated,
                               const DisparityMap& gt,
                               int                 threshold = DISP_TOL);
 
+double compute_density(const DisparityMap& estimated, const DisparityMap& gt);
+
 struct TimerResult {
   double mean_ms = 0.0;
   double std_ms  = 0.0;
@@ -38,6 +40,7 @@ void print_accuracy(const DisparityMap& estimated, const DisparityMap& gt);
 
 void save_pgm(const Image& img, const std::string& path);
 Image load_pgm(const std::string& path);
+DisparityMap load_disparity_pgm(const std::string& path, double scale);
 void save_disparity_pgm(const DisparityMap& disp, const std::string& path, int max_disp);
 void save_disparity_ppm(const DisparityMap& disp, const std::string& path, int max_disp);
 

@@ -109,13 +109,18 @@ void sad_stereo_cpu(const Image&  left,
   }
 }
 
+// Accuracy is measured only over pixels that are valid in BOTH the ground
+// truth (gt.data[i] >= 0) and the estimate (estimated.data[i] >= 0). Pixels
+// that the left-right consistency check rejected (set to a negative sentinel)
+// are excluded so the MAE/bad-rate reflect the surviving, trustworthy matches;
+// the lost coverage is reported separately by compute_density().
 double compute_mae(const DisparityMap& estimated, const DisparityMap& gt) {
   CHECK(estimated.height == gt.height && estimated.width == gt.width,
         "compute_mae: size mismatch");
   double sum   = 0.0;
   long   count = 0;
   for (int i = 0; i < gt.size(); ++i) {
-    if (gt.data[i] >= 0) {
+    if (gt.data[i] >= 0 && estimated.data[i] >= 0) {
       sum += std::abs(static_cast<double>(estimated.data[i]) - gt.data[i]);
       ++count;
     }
@@ -131,12 +136,28 @@ double compute_bad_pixel_rate(const DisparityMap& estimated,
   long bad   = 0;
   long count = 0;
   for (int i = 0; i < gt.size(); ++i) {
-    if (gt.data[i] >= 0) {
+    if (gt.data[i] >= 0 && estimated.data[i] >= 0) {
       if (std::abs(estimated.data[i] - gt.data[i]) > threshold) ++bad;
       ++count;
     }
   }
   return (count > 0) ? static_cast<double>(bad) / count : 0.0;
+}
+
+// Fraction of valid-GT pixels for which the estimate is also valid (i.e. not
+// rejected by the consistency check). 1.0 means full coverage.
+double compute_density(const DisparityMap& estimated, const DisparityMap& gt) {
+  CHECK(estimated.height == gt.height && estimated.width == gt.width,
+        "compute_density: size mismatch");
+  long valid = 0;
+  long count = 0;
+  for (int i = 0; i < gt.size(); ++i) {
+    if (gt.data[i] >= 0) {
+      if (estimated.data[i] >= 0) ++valid;
+      ++count;
+    }
+  }
+  return (count > 0) ? static_cast<double>(valid) / count : 0.0;
 }
 
 TimerResult time_sad_stereo_cpu(const Image&  left,
@@ -195,13 +216,16 @@ void print_timing_result(const TimerResult& t, const char* label) {
 }
 
 void print_accuracy(const DisparityMap& estimated, const DisparityMap& gt) {
-  double mae = compute_mae(estimated, gt);
-  double bad = compute_bad_pixel_rate(estimated, gt, DISP_TOL) * 100.0;
+  double mae     = compute_mae(estimated, gt);
+  double bad     = compute_bad_pixel_rate(estimated, gt, DISP_TOL) * 100.0;
+  double density = compute_density(estimated, gt) * 100.0;
   std::cout << std::fixed << std::setprecision(4);
   std::cout << "  Accuracy (valid pixels only):\n";
   std::cout << "    MAE         : " << mae << " px\n";
   std::cout << "    Bad-px rate : " << bad << " %"
             << "  (|err| > " << DISP_TOL << " px)\n";
+  std::cout << "    Coverage    : " << density << " %"
+            << "  (estimated / valid-GT pixels)\n";
   std::cout << "----------------------------------------------------\n";
 }
 
@@ -227,6 +251,38 @@ Image load_pgm(const std::string& path) {
   return img;
 }
 
+// Load a Middlebury-style ground-truth disparity map stored as an 8-bit PGM.
+// Gray values are scaled disparities (true_disp = gray / scale); a gray value
+// of 0 marks an unknown/occluded pixel and is stored as the negative sentinel
+// so the accuracy metrics ignore it.
+DisparityMap load_disparity_pgm(const std::string& path, double scale) {
+  std::ifstream f(path, std::ios::binary);
+  CHECK(f.is_open(), ("load_disparity_pgm: cannot open " + path).c_str());
+
+  std::string magic;
+  f >> magic;
+  CHECK(magic == "P5", ("load_disparity_pgm: not a binary (P5) PGM: " + path).c_str());
+
+  while (f.peek() == '\n' || f.peek() == '\r' || f.peek() == ' ') f.get();
+  while (f.peek() == '#') { std::string line; std::getline(f, line); }
+
+  int w, h, maxval;
+  f >> w >> h >> maxval;
+  CHECK(maxval == 255, ("load_disparity_pgm: only 8-bit PGM supported: " + path).c_str());
+  f.get();
+
+  std::vector<uint8_t> raw(static_cast<size_t>(w) * h);
+  f.read(reinterpret_cast<char*>(raw.data()), raw.size());
+  CHECK(f.good(), ("load_disparity_pgm: read error in " + path).c_str());
+
+  DisparityMap gt(h, w);
+  for (int i = 0; i < gt.size(); ++i) {
+    gt.data[i] = (raw[i] == 0) ? static_cast<disp_t>(-1)
+                               : static_cast<disp_t>(raw[i] / scale);
+  }
+  return gt;
+}
+
 void save_pgm(const Image& img, const std::string& path) {
   std::ofstream f(path, std::ios::binary);
   CHECK(f.is_open(), ("save_pgm: cannot open " + path).c_str());
@@ -240,8 +296,9 @@ void save_disparity_pgm(const DisparityMap& disp, const std::string& path, int m
   f << "P5\n" << disp.width << " " << disp.height << "\n255\n";
   std::vector<uint8_t> buf(disp.size());
   for (int i = 0; i < disp.size(); ++i) {
-    int d  = std::max(0, disp.data[i]);
-    buf[i] = static_cast<uint8_t>(std::min(255, d * 255 / std::max(1, max_disp - 1)));
+    float d = std::max(0.0f, static_cast<float>(disp.data[i]));
+    int   v = static_cast<int>(d * 255.0f / std::max(1, max_disp - 1) + 0.5f);
+    buf[i]  = static_cast<uint8_t>(std::min(255, v));
   }
   f.write(reinterpret_cast<const char*>(buf.data()), buf.size());
 }
@@ -254,7 +311,7 @@ void save_disparity_ppm(const DisparityMap& disp, const std::string& path, int m
   // Jet colormap: blue(0) -> cyan -> green -> yellow -> red(1)
   std::vector<uint8_t> buf(disp.size() * 3);
   for (int i = 0; i < disp.size(); ++i) {
-    float t = static_cast<float>(std::max(0, disp.data[i])) /
+    float t = std::max(0.0f, static_cast<float>(disp.data[i])) /
               static_cast<float>(std::max(1, max_disp - 1));
     t = std::min(1.0f, t);
 

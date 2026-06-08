@@ -39,10 +39,13 @@ main_cpu: main_cpu.o perception_cpu.o
 perception_gpu.o: perception_gpu.cu perception_gpu.h $(PERCEPTION_HDR)
 	$(NVCC) $(NVCCFLAGS) -c perception_gpu.cu -o $@
 
-main_gpu.o: main_gpu.cu perception_gpu.h $(PERCEPTION_HDR)
+perception_sgm.o: perception_sgm.cu perception_sgm.h $(PERCEPTION_HDR)
+	$(NVCC) $(NVCCFLAGS) -c perception_sgm.cu -o $@
+
+main_gpu.o: main_gpu.cu perception_gpu.h perception_sgm.h $(PERCEPTION_HDR)
 	$(NVCC) $(NVCCFLAGS) -c main_gpu.cu -o $@
 
-main_gpu: main_gpu.o perception_gpu.o perception_cpu.o
+main_gpu: main_gpu.o perception_gpu.o perception_sgm.o perception_cpu.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@
 
 main_mpi.o: main_mpi.cu perception_gpu.h $(PERCEPTION_HDR)

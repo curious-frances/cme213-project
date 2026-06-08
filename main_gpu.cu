@@ -5,14 +5,21 @@
 #include "perception_common.h"
 #include "perception_cpu.h"
 #include "perception_gpu.h"
+#include "perception_sgm.h"
 
 struct RunOptions {
   StereoParams p;
   bool        save_images = false;
   bool        run_cpu     = true;
+  bool        lr_check    = false;
+  bool        run_sgm     = false;
+  int         p1          = 200;
+  int         p2          = 500;
   std::string csv_path    = "";
   std::string left_path   = "";
   std::string right_path  = "";
+  std::string gt_path     = "";
+  double      gt_scale    = 1.0;
 };
 
 static void parse_args(int argc, char** argv, RunOptions& opt) {
@@ -28,8 +35,14 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
     if ((key == "--csv")   && i+1<argc) { opt.csv_path   = argv[++i]; continue; }
     if ((key == "--left")  && i+1<argc) { opt.left_path  = argv[++i]; continue; }
     if ((key == "--right") && i+1<argc) { opt.right_path = argv[++i]; continue; }
+    if ((key == "--gt")       && i+1<argc) { opt.gt_path  = argv[++i]; continue; }
+    if ((key == "--gt-scale") && i+1<argc) { opt.gt_scale = std::stod(argv[++i]); continue; }
     if (key == "--save-images") { opt.save_images = true;  continue; }
     if (key == "--no-cpu")      { opt.run_cpu     = false; continue; }
+    if (key == "--lr-check")    { opt.lr_check    = true;  continue; }
+    if (key == "--sgm")         { opt.run_sgm     = true;  continue; }
+    if ((key == "--p1") && i+1<argc) { opt.p1 = std::stoi(argv[++i]); continue; }
+    if ((key == "--p2") && i+1<argc) { opt.p2 = std::stoi(argv[++i]); continue; }
     if (key == "--help" || key == "-h") {
       std::cout << "Usage: ./main_gpu [options]\n"
                 << "  --height   H     image height            (default 480, ignored with --left)\n"
@@ -40,8 +53,14 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
                 << "  --repeats  N     timing repetitions      (default 5)\n"
                 << "  --left     PATH  load left image from P5 PGM\n"
                 << "  --right    PATH  load right image from P5 PGM\n"
+                << "  --gt       PATH  load ground-truth disparity PGM (for real images)\n"
+                << "  --gt-scale S     GT gray-to-disparity divisor (tsukuba 16, venus/sawtooth 8)\n"
                 << "  --save-images    write left/right/disp PGMs\n"
                 << "  --no-cpu         skip CPU baseline\n"
+                << "  --lr-check       also run tiled SAD + left-right consistency check\n"
+                << "  --sgm            also run 4-path SGM (compare vs SAD)\n"
+                << "  --p1 N           SGM small-disparity penalty   (default 200)\n"
+                << "  --p2 N           SGM discontinuity penalty      (default 500)\n"
                 << "  --csv PATH       append benchmark rows to CSV\n";
       std::exit(0);
     }
@@ -119,10 +138,15 @@ int main(int argc, char** argv) {
   std::cout << "  Repeats      : " << p.repeats << "\n";
   std::cout << "----------------------------------------------------\n";
 
-  bool have_gt = !using_real;
+  bool have_gt = !using_real || !opt.gt_path.empty();
   DisparityMap gt(p.height, p.width);
-  if (have_gt)
+  if (!using_real) {
     generate_ground_truth(gt, p.true_disp, p.radius, p.max_disp);
+  } else if (!opt.gt_path.empty()) {
+    gt = load_disparity_pgm(opt.gt_path, opt.gt_scale);
+    CHECK(gt.height == p.height && gt.width == p.width,
+          "ground-truth disparity dimensions must match the input images");
+  }
 
   if (opt.save_images) {
     save_pgm(left,  "left.pgm");
@@ -186,6 +210,34 @@ int main(int argc, char** argv) {
     }
     if (!opt.csv_path.empty())
       append_benchmark_csv(opt.csv_path, "GPU_tiled", p, gpu_ms_to_timer(ms), gops);
+  }
+
+  if (opt.lr_check) {
+    float ms = sad_stereo_gpu_tiled_lrc(left, right, disp_out, p.max_disp, p.radius, p.repeats);
+    print_gpu_result("GPU tiled + LR-check", ms, gops);
+    if (have_gt) print_accuracy(disp_out, gt);
+    if (opt.save_images) {
+      save_disparity_pgm(disp_out, "disp_tiled_lrc.pgm", p.max_disp);
+      save_disparity_ppm(disp_out, "disp_tiled_lrc.ppm", p.max_disp);
+      std::cout << "  Saved: disp_tiled_lrc.pgm/.ppm\n";
+    }
+    if (!opt.csv_path.empty())
+      append_benchmark_csv(opt.csv_path, "GPU_tiled_lrc", p, gpu_ms_to_timer(ms), gops);
+  }
+
+  if (opt.run_sgm) {
+    std::cout << "  SGM penalties: P1=" << opt.p1 << "  P2=" << opt.p2 << "\n";
+    float ms = sgm_stereo_gpu(left, right, disp_out, p.max_disp, p.radius,
+                              opt.p1, opt.p2, p.repeats);
+    print_gpu_result("GPU SGM (4-path)", ms, gops);
+    if (have_gt) print_accuracy(disp_out, gt);
+    if (opt.save_images) {
+      save_disparity_pgm(disp_out, "disp_sgm.pgm", p.max_disp);
+      save_disparity_ppm(disp_out, "disp_sgm.ppm", p.max_disp);
+      std::cout << "  Saved: disp_sgm.pgm/.ppm\n";
+    }
+    if (!opt.csv_path.empty())
+      append_benchmark_csv(opt.csv_path, "GPU_SGM_4path", p, gpu_ms_to_timer(ms), gops);
   }
 
   std::cout << "====================================================\n\n";

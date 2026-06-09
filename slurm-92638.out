@@ -1,0 +1,24 @@
+Census radiometric-robustness test  Mon Jun  8 16:26:57 PDT 2026
+Quadro RTX 6000
+
+==== tsukuba  gain=1.0 bias=0 ====
+  SAD-tiled     bad = 20.4297%
+  SGM(SAD)      bad = 7.3857%
+  SGM(Census)   bad = 12.0313%
+
+==== tsukuba  gain=1.4 bias=15 ====
+  SAD-tiled     bad = 87.5046%
+  SGM(SAD)      bad = 87.1887%
+  SGM(Census)   bad = 13.5685%
+
+==== venus  gain=1.0 bias=0 ====
+  SAD-tiled     bad = 20.4359%
+  SGM(SAD)      bad = 9.1270%
+  SGM(Census)   bad = 10.6869%
+
+==== venus  gain=1.4 bias=15 ====
+  SAD-tiled     bad = 90.8827%
+  SGM(SAD)      bad = 91.5324%
+  SGM(Census)   bad = 10.7194%
+
+Done Mon Jun  8 16:26:58 PDT 2026

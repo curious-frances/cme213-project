@@ -1,0 +1,22 @@
+SGM variant study (paths x cost)  Mon Jun  8 16:22:28 PDT 2026
+Quadro RTX 6000
+
+######## tsukuba (D=16) ########
+  4-path sad     :  1.1051 ms   MAE 0.4805   bad 7.3857%
+  4-path census  :  1.0330 ms   MAE 0.6231   bad 12.0313%
+  8-path sad     :  1.9553 ms   MAE 0.4691   bad 7.7039%
+  8-path census  :  1.8819 ms   MAE 0.6020   bad 10.7508%
+
+######## sawtooth (D=20) ########
+  4-path sad     :  1.5526 ms   MAE 1.1356   bad 10.5445%
+  4-path census  :  1.5006 ms   MAE 1.1462   bad 10.7955%
+  8-path sad     :  2.8272 ms   MAE 1.1301   bad 10.3020%
+  8-path census  :  2.7769 ms   MAE 1.1471   bad 10.6270%
+
+######## venus (D=20) ########
+  4-path sad     :  1.5616 ms   MAE 0.9377   bad 9.1270%
+  4-path census  :  1.5090 ms   MAE 0.9828   bad 10.6869%
+  8-path sad     :  2.8603 ms   MAE 0.9279   bad 9.1197%
+  8-path census  :  2.8029 ms   MAE 0.9668   bad 10.2351%
+
+Done Mon Jun  8 16:22:30 PDT 2026

@@ -48,10 +48,10 @@ main_gpu.o: main_gpu.cu perception_gpu.h perception_sgm.h $(PERCEPTION_HDR)
 main_gpu: main_gpu.o perception_gpu.o perception_sgm.o perception_cpu.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@
 
-main_mpi.o: main_mpi.cu perception_gpu.h $(PERCEPTION_HDR)
+main_mpi.o: main_mpi.cu perception_gpu.h perception_sgm.h $(PERCEPTION_HDR)
 	$(NVCC) $(NVCCFLAGS) $(MPI_INCLUDES) -c main_mpi.cu -o $@
 
-main_mpi: main_mpi.o perception_gpu.o perception_cpu.o
+main_mpi: main_mpi.o perception_gpu.o perception_sgm.o perception_cpu.o
 	$(NVC) $(NVCFLAGS) $^ -o $@ $(MPI_LDFLAGS)
 
 gtest: gtest.a gtest_main.a

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -15,11 +17,17 @@ struct RunOptions {
   bool        run_sgm     = false;
   int         p1          = 200;
   int         p2          = 500;
+  int         sgm_paths   = 4;
+  bool        sgm_census  = false;
+  bool        p1_set      = false;
+  bool        p2_set      = false;
   std::string csv_path    = "";
   std::string left_path   = "";
   std::string right_path  = "";
   std::string gt_path     = "";
   double      gt_scale    = 1.0;
+  double      right_gain  = 1.0;   // radiometric perturbation of the right image
+  double      right_bias  = 0.0;   // (to demonstrate Census robustness vs SAD)
 };
 
 static void parse_args(int argc, char** argv, RunOptions& opt) {
@@ -37,12 +45,16 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
     if ((key == "--right") && i+1<argc) { opt.right_path = argv[++i]; continue; }
     if ((key == "--gt")       && i+1<argc) { opt.gt_path  = argv[++i]; continue; }
     if ((key == "--gt-scale") && i+1<argc) { opt.gt_scale = std::stod(argv[++i]); continue; }
+    if ((key == "--right-gain") && i+1<argc) { opt.right_gain = std::stod(argv[++i]); continue; }
+    if ((key == "--right-bias") && i+1<argc) { opt.right_bias = std::stod(argv[++i]); continue; }
     if (key == "--save-images") { opt.save_images = true;  continue; }
     if (key == "--no-cpu")      { opt.run_cpu     = false; continue; }
     if (key == "--lr-check")    { opt.lr_check    = true;  continue; }
     if (key == "--sgm")         { opt.run_sgm     = true;  continue; }
-    if ((key == "--p1") && i+1<argc) { opt.p1 = std::stoi(argv[++i]); continue; }
-    if ((key == "--p2") && i+1<argc) { opt.p2 = std::stoi(argv[++i]); continue; }
+    if (key == "--sgm-census")  { opt.sgm_census  = true;  continue; }
+    if ((key == "--sgm-paths") && i+1<argc) { opt.sgm_paths = std::stoi(argv[++i]); continue; }
+    if ((key == "--p1") && i+1<argc) { opt.p1 = std::stoi(argv[++i]); opt.p1_set = true; continue; }
+    if ((key == "--p2") && i+1<argc) { opt.p2 = std::stoi(argv[++i]); opt.p2_set = true; continue; }
     if (key == "--help" || key == "-h") {
       std::cout << "Usage: ./main_gpu [options]\n"
                 << "  --height   H     image height            (default 480, ignored with --left)\n"
@@ -55,12 +67,16 @@ static void parse_args(int argc, char** argv, RunOptions& opt) {
                 << "  --right    PATH  load right image from P5 PGM\n"
                 << "  --gt       PATH  load ground-truth disparity PGM (for real images)\n"
                 << "  --gt-scale S     GT gray-to-disparity divisor (tsukuba 16, venus/sawtooth 8)\n"
+                << "  --right-gain G   multiply right-image brightness by G (radiometric test)\n"
+                << "  --right-bias B   add B to right-image brightness (radiometric test)\n"
                 << "  --save-images    write left/right/disp PGMs\n"
                 << "  --no-cpu         skip CPU baseline\n"
                 << "  --lr-check       also run tiled SAD + left-right consistency check\n"
-                << "  --sgm            also run 4-path SGM (compare vs SAD)\n"
-                << "  --p1 N           SGM small-disparity penalty   (default 200)\n"
-                << "  --p2 N           SGM discontinuity penalty      (default 500)\n"
+                << "  --sgm            also run SGM (compare vs SAD)\n"
+                << "  --sgm-paths N    number of SGM paths: 4 or 8     (default 4)\n"
+                << "  --sgm-census     use Census+Hamming data term instead of SAD\n"
+                << "  --p1 N           SGM small-disparity penalty   (default 200 SAD / 7 census)\n"
+                << "  --p2 N           SGM discontinuity penalty      (default 500 SAD / 42 census)\n"
                 << "  --csv PATH       append benchmark rows to CSV\n";
       std::exit(0);
     }
@@ -124,6 +140,19 @@ int main(int argc, char** argv) {
     opt.p.width  = left.width;
     CHECK(p.width  > 2 * p.radius + p.max_disp, "Image too narrow for given radius/max_disp");
     CHECK(p.height > 2 * p.radius,              "Image too short for given radius");
+  }
+
+  // Optional radiometric perturbation of the right image: simulates a camera
+  // with a different gain/exposure than the left. SAD costs degrade because
+  // intensities no longer match; Census costs are largely unaffected because
+  // they depend only on local intensity ordering.
+  if (opt.right_gain != 1.0 || opt.right_bias != 0.0) {
+    for (int i = 0; i < right.size(); ++i) {
+      double v = opt.right_gain * right.data[i] + opt.right_bias;
+      right.data[i] = static_cast<pixel_t>(std::min(255.0, std::max(0.0, v)));
+    }
+    std::cout << "  Right image perturbed: gain=" << opt.right_gain
+              << " bias=" << opt.right_bias << "\n";
   }
 
   std::cout << "\n====================================================\n";
@@ -226,18 +255,30 @@ int main(int argc, char** argv) {
   }
 
   if (opt.run_sgm) {
-    std::cout << "  SGM penalties: P1=" << opt.p1 << "  P2=" << opt.p2 << "\n";
+    // Census Hamming costs are ~100x smaller than window-SAD sums, so use
+    // census-appropriate penalty defaults unless the user set them explicitly.
+    int p1 = opt.p1, p2 = opt.p2;
+    if (opt.sgm_census && !opt.p1_set) p1 = 7;
+    if (opt.sgm_census && !opt.p2_set) p2 = 42;
+    const char* cost_name = opt.sgm_census ? "Census" : "SAD";
+    char label[64];
+    std::snprintf(label, sizeof(label), "GPU SGM (%d-path, %s)", opt.sgm_paths, cost_name);
+    std::cout << "  SGM: " << opt.sgm_paths << " paths, " << cost_name
+              << " cost, P1=" << p1 << " P2=" << p2 << "\n";
     float ms = sgm_stereo_gpu(left, right, disp_out, p.max_disp, p.radius,
-                              opt.p1, opt.p2, p.repeats);
-    print_gpu_result("GPU SGM (4-path)", ms, gops);
+                              p1, p2, p.repeats, opt.sgm_paths, opt.sgm_census ? 1 : 0);
+    print_gpu_result(label, ms, gops);
     if (have_gt) print_accuracy(disp_out, gt);
     if (opt.save_images) {
       save_disparity_pgm(disp_out, "disp_sgm.pgm", p.max_disp);
       save_disparity_ppm(disp_out, "disp_sgm.ppm", p.max_disp);
       std::cout << "  Saved: disp_sgm.pgm/.ppm\n";
     }
-    if (!opt.csv_path.empty())
-      append_benchmark_csv(opt.csv_path, "GPU_SGM_4path", p, gpu_ms_to_timer(ms), gops);
+    if (!opt.csv_path.empty()) {
+      char impl[64];
+      std::snprintf(impl, sizeof(impl), "GPU_SGM_%dpath_%s", opt.sgm_paths, cost_name);
+      append_benchmark_csv(opt.csv_path, impl, p, gpu_ms_to_timer(ms), gops);
+    }
   }
 
   std::cout << "====================================================\n\n";

@@ -10,6 +10,7 @@
 #include "perception_common.h"
 #include "perception_cpu.h"
 #include "perception_gpu.h"
+#include "perception_sgm.h"
 
 struct MpiRunOptions {
     StereoParams p;
@@ -19,6 +20,12 @@ struct MpiRunOptions {
     std::string  left_path     = "";
     std::string  right_path    = "";
     std::string  output_prefix = "disp_mpi";
+    bool         use_sgm       = false;   // distributed 4-path SGM instead of SAD
+    bool         sgm_census    = false;
+    int          p1            = 200;
+    int          p2            = 500;
+    bool         p1_set        = false;
+    bool         p2_set        = false;
 };
 
 static void parse_args(int argc, char** argv, MpiRunOptions& opt) {
@@ -37,7 +44,14 @@ static void parse_args(int argc, char** argv, MpiRunOptions& opt) {
         if (key == "--left"           && i+1<argc)             { opt.left_path     = argv[++i];   continue; }
         if (key == "--right"          && i+1<argc)             { opt.right_path    = argv[++i];   continue; }
         if (key == "--output-prefix"  && i+1<argc)             { opt.output_prefix = argv[++i];   continue; }
+        if (key == "--sgm")                                    { opt.use_sgm       = true;        continue; }
+        if (key == "--sgm-census")                             { opt.sgm_census    = true;        continue; }
+        if (key == "--p1"             && i+1<argc)             { opt.p1 = std::stoi(argv[++i]); opt.p1_set = true; continue; }
+        if (key == "--p2"             && i+1<argc)             { opt.p2 = std::stoi(argv[++i]); opt.p2_set = true; continue; }
     }
+    // Census Hamming costs are much smaller than window-SAD; use census defaults.
+    if (opt.sgm_census && !opt.p1_set) opt.p1 = 7;
+    if (opt.sgm_census && !opt.p2_set) opt.p2 = 42;
 }
 
 int main(int argc, char** argv) {
@@ -163,9 +177,48 @@ int main(int argc, char** argv) {
 
     MPI_Barrier(MPI_COMM_WORLD);
     double t0_kernel = MPI_Wtime();
+    float local_gpu_ms = 0.0f;
 
-    float local_gpu_ms = sad_stereo_gpu_tiled(slab_l, slab_r, slab_disp,
-                                               p.max_disp, p.radius, p.repeats);
+    if (opt.use_sgm) {
+        // Distributed 4-path SGM. Horizontal paths are local; vertical paths
+        // are pipelined across ranks via frontier (W*D ints) exchange.
+        const int D = p.max_disp;
+        std::vector<int> fin((size_t)W * D), fout((size_t)W * D);
+        const int TAG_TB = 10, TAG_BT = 11;
+
+        cudaEvent_t e0, e1;
+        cudaEventCreate(&e0); cudaEventCreate(&e1);
+        cudaEventRecord(e0);
+
+        void* ctx = sgm_dist_begin(slab_l, slab_r, p.max_disp, p.radius,
+                                   opt.p1, opt.p2, opt.sgm_census ? 1 : 0,
+                                   halo_top, local_rows);
+
+        // Top -> bottom sweep: receive frontier from rank-1, send to rank+1.
+        if (rank > 0)
+            MPI_Recv(fin.data(), W * D, MPI_INT, rank - 1, TAG_TB,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        sgm_dist_vert(ctx, +1, rank > 0 ? fin.data() : nullptr, fout.data());
+        if (rank < nranks - 1)
+            MPI_Send(fout.data(), W * D, MPI_INT, rank + 1, TAG_TB, MPI_COMM_WORLD);
+
+        // Bottom -> top sweep: receive frontier from rank+1, send to rank-1.
+        if (rank < nranks - 1)
+            MPI_Recv(fin.data(), W * D, MPI_INT, rank + 1, TAG_BT,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        sgm_dist_vert(ctx, -1, rank < nranks - 1 ? fin.data() : nullptr, fout.data());
+        if (rank > 0)
+            MPI_Send(fout.data(), W * D, MPI_INT, rank - 1, TAG_BT, MPI_COMM_WORLD);
+
+        sgm_dist_finish(ctx, slab_disp);
+
+        cudaEventRecord(e1); cudaEventSynchronize(e1);
+        cudaEventElapsedTime(&local_gpu_ms, e0, e1);
+        cudaEventDestroy(e0); cudaEventDestroy(e1);
+    } else {
+        local_gpu_ms = sad_stereo_gpu_tiled(slab_l, slab_r, slab_disp,
+                                            p.max_disp, p.radius, p.repeats);
+    }
 
     MPI_Barrier(MPI_COMM_WORLD);
     double t_kernel_wall = MPI_Wtime() - t0_kernel;
@@ -195,8 +248,11 @@ int main(int argc, char** argv) {
         double t_comm_total = (t_scatter + t_halo + t_gather) * 1e3;  // ms
         double t_wall_ms    = t_kernel_wall * 1e3;
 
+        const char* algo = opt.use_sgm
+            ? (opt.sgm_census ? "SGM 4-path (Census)" : "SGM 4-path (SAD)")
+            : "SAD (tiled)";
         std::cout << "\n====================================================\n";
-        std::cout << "  MPI+CUDA Stereo SAD  (nranks=" << nranks << ")\n";
+        std::cout << "  MPI+CUDA Stereo " << algo << "  (nranks=" << nranks << ")\n";
         std::cout << "====================================================\n";
         std::cout << "  Image          : " << H << " x " << W << "\n";
         std::cout << "  Max disp/radius: " << p.max_disp << " / " << p.radius << "\n";

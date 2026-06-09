@@ -1,0 +1,122 @@
+Nsight Compute profiling  Mon Jun  8 16:51:30 PDT 2026
+Quadro RTX 6000
+Profiling SAD kernels -> results/sad_kernels.ncu-rep
+==PROF== Connected to process 1884169 (/home/cme213/aanya/cme213-project/main_gpu)
+==PROF== Profiling "kernel_basic": 0%....50%....100% - 37 passes
+==PROF== Profiling "kernel_basic": 0%....50%....100% - 37 passes
+==PROF== Profiling "kernel_smem": 0%....50%....100% - 36 passes
+==PROF== Profiling "kernel_smem": 0%....50%....100% - 36 passes
+==PROF== Profiling "kernel_tiled": 0%....50%....100% - 36 passes
+==PROF== Profiling "kernel_tiled": 0%....50%....100% - 36 passes
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 480 x 640
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 1
+----------------------------------------------------
+  Compute (approx): 0.87127 GOps/frame
+
+  [GPU basic]
+    Mean  : 1351.55 ms
+    FPS   : 0.739894
+    Tput  : 0.644648 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  [GPU smem]
+    Mean  : 1251.8414 ms
+    FPS   : 0.7988
+    Tput  : 0.6960 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  [GPU tiled]
+    Mean  : 1218.8779 ms
+    FPS   : 0.8204
+    Tput  : 0.7148 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0398 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+====================================================
+
+==PROF== Disconnected from process 1884169
+==PROF== Report: /home/cme213/aanya/cme213-project/results/sad_kernels.ncu-rep
+Profiling SGM kernels -> results/sgm_kernels.ncu-rep
+==PROF== Connected to process 1884436 (/home/cme213/aanya/cme213-project/main_gpu)
+==PROF== Profiling "sgm_cost_sad_kernel": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_aggregate": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_aggregate": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_aggregate": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_aggregate": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_cost_sad_kernel": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_aggregate": 0%....50%....100% - 36 passes
+==PROF== Profiling "sgm_aggregate": 0%....50%....100% - 36 passes
+
+====================================================
+  Stereo SAD — GPU benchmark
+====================================================
+  Image size   : 480 x 640
+  Patch radius : 2  (patch = 5x5)
+  Max disparity: 64
+  True disparity (GT): 24
+  Repeats      : 1
+----------------------------------------------------
+  Compute (approx): 0.87127 GOps/frame
+
+  [GPU basic]
+    Mean  : 1.18186 ms
+    FPS   : 846.127
+    Tput  : 737.205 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  [GPU smem]
+    Mean  : 0.5946 ms
+    FPS   : 1681.8256
+    Tput  : 1465.3249 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0000 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  [GPU tiled]
+    Mean  : 0.6715 ms
+    FPS   : 1489.2299
+    Tput  : 1297.5219 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0398 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+  SGM: 4 paths, SAD cost, P1=200 P2=500
+  [GPU SGM (4-path, SAD)]
+    Mean  : 3896.2173 ms
+    FPS   : 0.2567
+    Tput  : 0.2236 GOps/s
+  Accuracy (valid pixels only):
+    MAE         : 0.0090 px
+    Bad-px rate : 0.0000 %  (|err| > 1 px)
+    Coverage    : 100.0000 %  (estimated / valid-GT pixels)
+----------------------------------------------------
+====================================================
+
+==PROF== Disconnected from process 1884436
+==PROF== Report: /home/cme213/aanya/cme213-project/results/sgm_kernels.ncu-rep
+
+Done. Open in the Nsight Compute GUI:
+  ncu-ui results/sad_kernels.ncu-rep
+  ncu-ui results/sgm_kernels.ncu-rep
+Or dump a text summary on the cluster:
+  ncu --import results/sad_kernels.ncu-rep --page details | less

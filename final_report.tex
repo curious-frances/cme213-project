@@ -17,11 +17,6 @@
 \usepackage{natbib}
 \bibliographystyle{ieeetr}
 
-% ---------------------------------------------------------------------------
-% Author-facing flags (delete or blank these macros before submitting):
-%   \TODO    something to check / fill in     \CITE  citation to verify
-%   \DIAGRAM a figure to insert (PPM->PNG)
-% ---------------------------------------------------------------------------
 \newcommand{\TODO}[1]{\textcolor{red}{[\textbf{TODO:} #1]}}
 \newcommand{\CITE}[1]{\textcolor{blue}{[\textbf{CITE:} #1]}}
 \newcommand{\DIAGRAM}[1]{\textcolor{orange}{[\textbf{DIAGRAM:} #1]}}
@@ -45,314 +40,365 @@ A CUDA + MPI Study of Local Matching and Semi-Global Matching}
 }
 \maketitle
 
-\noindent\emph{All figures and tables are collected in the appendix and cited
-inline; the inline numbers make the main text self-contained within the page
-limit.}
-
 % ===========================================================================
 \section{Problem Description}
 % ===========================================================================
 
-Stereo vision recovers depth from a \emph{rectified} image pair: for each pixel
-$(r,c)$ in the left image $I_L$ we seek the horizontal \emph{disparity} $d$ such
-that $I_L(r,c)\approx I_R(r,c-d)$. Since $Z=fB/d$ (focal length $f$, baseline
-$B$), a dense disparity map is a dense depth map. The input is a rectified 8-bit
-pair of size $H\times W$ and a maximum disparity $D_{\max}$; the output is a
-disparity map $D(r,c)\in[0,D_{\max})$ stored as float to hold sub-pixel values.
-We assume rectification (purely horizontal search) and non-negative disparity,
-the standard Middlebury setting~\cite{scharstein2002}.
+Stereo vision estimates depth from two rectified images of the same scene. For each pixel $(r,c)$ in the left image $I_L$, we search for a horizontal disparity $d$ such that the corresponding pixel in the right image, $I_R(r,c-d)$, matches it. Once the disparity is known, depth follows from $Z=fB/d$, where $f$ is the focal length and $B$ is the camera baseline. Our input is a rectified 8-bit stereo pair of size $H\times W$ and a maximum disparity $D_{\max}$. The output is a dense disparity map $D(r,c)\in[0,D_{\max})$, stored as a float so that sub-pixel refinement can be represented.
 
-Depth feeds obstacle avoidance, mapping, and manipulation, and must run at camera
-rate (30--60\,Hz). Dense matching costs $\Theta(H\,W\,D_{\max}(2R{+}1)^2)$ for
-patch radius $R$: one $1920\times2560$ frame at $D_{\max}{=}64,R{=}2$ is already
-$\sim$16\,GOps. A multi-camera rig at high resolution exceeds a single GPU's
-compute and memory budget, so we distribute the image across GPUs with MPI,
-shrinking both per-GPU work and per-GPU memory.
+This problem is useful because dense depth is a core input to robotics tasks such as obstacle avoidance, mapping, and manipulation. The challenge is that dense stereo is expensive: local matching with a patch radius $R$ requires work proportional to $HWD_{\max}(2R+1)^2$. For a $1920\times2560$ image, $D_{\max}=64$, and $R=2$, this is already about 16 billion simple operations per frame. At camera rate, especially for larger images or multiple cameras, a single GPU can become limiting. Our goal is therefore not only to implement stereo matching, but to study how well the computation can be distributed across multiple GPUs using CUDA and MPI.
 
-\paragraph{Contributions.} This report builds a multi-GPU stereo pipeline and
-uses it to study what limits dense matching at scale:
-\begin{itemize}\itemsep2pt
-\item Three CUDA SAD kernels; the shared-memory variant is $2.0\times$ faster,
-and a roofline plus Nsight Compute counters show \emph{why}: SAD is
-memory-bound, set by on-chip reuse, not arithmetic (Secs.~\ref{sec:model},
-\ref{sec:bottleneck}).
-\item A GPU Semi-Global Matching implementation (4/8 paths; SAD or Census data
-term) compared head-to-head with local SAD. SGM roughly halves the bad-pixel
-rate at full coverage; Census makes matching robust to exposure mismatch that
-collapses SAD (Sec.~\ref{sec:variants}).
-\item An MPI+CUDA row decomposition with halo exchange that scales SAD to
-$3.4\times$ on 4 GPUs, with a communication and Amdahl model that predicts the
-observed strong/weak scaling (Secs.~\ref{sec:model},~\ref{sec:scaling}).
-\item A \emph{distributed} SGM that preserves the exact optimum via boundary
-frontier exchange (byte-identical to single-GPU) but scales worse than SAD,
-quantifying how a globally-coupled algorithm resists decomposition
-(Sec.~\ref{sec:scaling}).
-\end{itemize}
+The project has four main parts. First, we implement and compare several CUDA kernels for local sum-of-absolute-differences matching. Second, we implement Semi-Global Matching (SGM), which is more accurate but harder to parallelize. Third, we distribute the computation across GPUs using an MPI row decomposition with halo exchange. Finally, we benchmark the system, compare the results to a performance model, and study where the scaling breaks down.
 
 % ===========================================================================
 \section{Algorithms and State of the Art}
 % ===========================================================================
 
-Dense stereo has four stages~\cite{scharstein2002}: matching cost, cost
-aggregation, disparity selection, and refinement; methods differ mainly in
-aggregation and selection.
+Dense stereo algorithms are commonly described as a sequence of four stages:
+computing a matching cost, aggregating that cost, selecting the final disparity,
+and optionally refining the result~\cite{scharstein2002}. This taxonomy is a
+good fit for our project because our goal is not to introduce a new stereo
+algorithm. Instead, we use standard stereo methods as case studies and ask how
+their algorithmic structure affects CUDA performance and multi-GPU scaling.
 
-\emph{Local block matching} sums a per-pixel cost over a fixed window and takes
-the per-pixel winner (WTA). With the sum-of-absolute-differences (SAD) cost,
+The first method we consider is local block matching, which is the simplest and
+most parallel of the approaches in our project. For each pixel, the algorithm
+searches over all candidate disparities and chooses the disparity with the lowest
+window cost. In our implementation, this cost is the sum of absolute differences
+(SAD):
 \begin{equation}
 \label{eq:sad}
-\mathrm{SAD}(r,c,d) = \!\!\sum_{|i|\le R,\,|j|\le R}\!\!
-\bigl| I_L(r{+}i,c{+}j) - I_R(r{+}i,c{+}j{-}d) \bigr|,
-\quad D(r,c)=\arg\min_d \mathrm{SAD}(r,c,d).
+\mathrm{SAD}(r,c,d) =
+\sum_{|i|\le R,\,|j|\le R}
+\left| I_L(r+i,c+j)-I_R(r+i,c+j-d)\right|,
+\quad
+D(r,c)=\arg\min_d \mathrm{SAD}(r,c,d).
 \end{equation}
-It is fast and embarrassingly parallel but blurs depth edges and fails in
-textureless or occluded regions because every pixel is decided independently;
-this is OpenCV \texttt{StereoBM}~\cite{opencv}.
+SAD is a useful baseline because it is dense, easy to compare against a CPU
+reference, and naturally parallel. Once each MPI rank has its assigned image
+rows and halo rows, each output pixel can be computed independently. The main
+limitation is that the only smoothness comes from the fixed support window. As a
+result, local SAD is fast, but it can make poor choices near depth boundaries,
+occlusions, and low-texture regions.
 
-\emph{Semi-Global Matching} (SGM)~\cite{hirschmuller2008} approximates a 2D
-smoothness energy by summing 1D dynamic-programming problems along several image
-directions. Along direction $\mathbf{r}$,
+To address some of these limitations, we also implement Semi-Global Matching
+(SGM). SGM keeps the same basic idea of evaluating a matching cost for each
+pixel and disparity, but it adds a stronger smoothness model over the disparity
+map. Hirschm\"uller formulates this as a pixelwise matching cost plus penalties
+for disparity changes between neighboring pixels, then approximates the full 2D
+optimization by aggregating costs along 1D paths from multiple
+directions~\cite{hirschmuller2008}. For a path direction $\mathbf{r}$, the
+recurrence is
 \begin{equation}
 \label{eq:sgm}
-L_\mathbf{r}(\mathbf{p},d) = C(\mathbf{p},d) + \min\!\bigl(
-L_\mathbf{r}(\mathbf{p}{-}\mathbf{r},d),\,
-L_\mathbf{r}(\mathbf{p}{-}\mathbf{r},d{\pm}1){+}P_1,\,
-{\textstyle\min_k} L_\mathbf{r}(\mathbf{p}{-}\mathbf{r},k){+}P_2\bigr)
-- {\textstyle\min_k} L_\mathbf{r}(\mathbf{p}{-}\mathbf{r},k),
+\begin{aligned}
+L_\mathbf{r}(\mathbf{p},d) =\;& C(\mathbf{p},d)
++ \min\!\left(
+  L_\mathbf{r}(\mathbf{p}-\mathbf{r},d),\;
+  L_\mathbf{r}(\mathbf{p}-\mathbf{r},d-1)+P_1,\right.\\
+&\left.\qquad\quad
+  L_\mathbf{r}(\mathbf{p}-\mathbf{r},d+1)+P_1,\;
+  \min_k L_\mathbf{r}(\mathbf{p}-\mathbf{r},k)+P_2
+\right)
+&- \min_k L_\mathbf{r}(\mathbf{p}-\mathbf{r},k).
+\end{aligned}
 \end{equation}
-with $P_1$ penalizing $\pm1$ steps (slanted surfaces) and $P_2{>}P_1$ penalizing
-jumps (depth edges); the summed cost $S=\sum_\mathbf{r} L_\mathbf{r}$ is
-minimized over $d$. SGM is the production accuracy/speed sweet spot (OpenCV
-\texttt{StereoSGBM}, NVIDIA VPI~\cite{nvidiavpi}, the GPU library
-\texttt{libSGM}~\cite{hernandez2016}), usually with 4 or 8 paths and a
-Census-transform cost~\cite{zabih1994}. Deep networks~\cite{chang2018} lead on
-accuracy but are out of scope for a CUDA+MPI systems study.
+Here $P_1$ penalizes small disparity changes, while $P_2$ penalizes larger jumps.
+After aggregating costs from all paths, the disparity with the lowest total cost
+is selected. This usually produces cleaner disparity maps than local SAD because
+neighboring pixels influence one another. However, the same path dependencies
+that improve accuracy also make SGM harder to parallelize and distribute across
+MPI ranks.
 
-We implement local SAD, two accuracy add-ons (sub-pixel refinement and a
-left--right consistency check), and SGM, all on GPU (Sec.~\ref{sec:parallel}).
-Crucially, our SGM reuses the \emph{same} SAD window as its data term
-$C(\mathbf{p},d)$, so comparing it to local SAD isolates the effect of the
-aggregation strategy alone rather than confounding it with a different cost.
+We also compare two data terms: SAD and Census. SAD compares pixel intensities
+directly, which is fast but sensitive to brightness differences between cameras.
+Census instead compares local intensity ordering via Hamming
+distance~\cite{zabih1994}, making it robust to gain and bias changes. We use
+this distinction in Section~\ref{sec:variants} to show why Census holds up under
+exposure mismatch where SAD fails.
 
-% ===========================================================================
-\section{Parallelization Strategy (CUDA + MPI)}
-\label{sec:parallel}
-% ===========================================================================
+There is a large body of prior work on accelerating SGM on GPUs. For example,
+Hern\'andez-Ju\'arez et al.\ implement a 4-path SGM pipeline that runs in real
+time on an embedded Tegra X1 GPU~\cite{hernandez2016}. Our work studies a
+different question: how SAD and SGM behave when the computation is split across
+multiple GPUs using MPI.
 
-\emph{CUDA kernels.} Each thread computes one output pixel over all $D_{\max}$
-disparities; the design axis is how the heavily reused right-image pixels reach
-the ALUs. \texttt{basic} reads patches from global memory (reuse only via L2).
-\texttt{smem} has a $16\times16$ block stage the left tile and the wider right
-tile $(B{+}2R{+}D_{\max})$ into shared memory once, with coalesced loads and
-$\sim$$B^2$ reuse per byte. \texttt{tiled} keeps a per-thread register array
-\texttt{sad[64]} and sweeps the window once, reusing each left pixel across all
-disparities; it also computes the parabolic sub-pixel minimum for free (the cost
-curve is already in registers) and backs the LRC check (a second pass with the
-images swapped, rejecting pixels whose left- and right-referenced disparities
-differ by more than one). For SGM the cost volume is laid out
-\texttt{C[(r*W+c)*D+d]} so the $D$ threads of a block read contiguous memory;
-each aggregation kernel launches \textbf{one block per scanline}
-($\mathrm{next\_pow2}(D)$ threads) that walks the scanline serially---the
-recurrence~\eqref{eq:sgm} is a path dependency---while the independent scanlines
-run in parallel across blocks, with a shared-memory tree reduction for the
-$\min_k$ term.
 
-\emph{MPI decomposition.} We use a 1-D \textbf{row} decomposition (rank $i$ owns
-$\lfloor H/P\rfloor{+}[i{<}H\bmod P]$ rows). Rows beat columns by \emph{halo
-asymmetry}: SAD needs $R$ halo rows, but because the search is horizontal a
-column split would need $D_{\max}{+}R$ halo columns---$33\times$ larger at
-$R{=}2,D_{\max}{=}64$. Communication is therefore three operations:
-\texttt{MPI\_Scatterv} (each rank's owned rows out from rank 0),
-\texttt{MPI\_Sendrecv} ($R$ halo rows with neighbours, no root), and
-\texttt{MPI\_Gatherv} (owned disparity rows back)---replacing the Milestone-4
-full-image broadcast. Each rank binds a GPU with
-\texttt{cudaSetDevice(rank\,\%\,num\_devices)}; host buffers are page-locked
-(\texttt{cudaHostRegister}) and copied with \texttt{cudaMemcpyAsync} for true
-DMA. We report the slowest rank's kernel time (\texttt{MPI\_Reduce}/\texttt{MAX}).
-Figure~\ref{fig:decomp} summarizes the decomposition and all communication.
+\section{Parallelization Strategy}
+\label{sec:parallelization}
 
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[font=\footnotesize, >=stealth,
-  slab/.style={draw, thick, minimum width=3.6cm, minimum height=0.8cm, fill=blue!8},
-  halo/.style={draw, dashed, minimum width=3.6cm, minimum height=0.26cm, fill=orange!20}]
-\node[slab] (s0) at (0,2.6) {GPU 0 owned rows};
-\node[halo] (h0) at (0,2.05) {halo ($R$ rows)};
-\node[slab] (s1) at (0,1.5) {GPU 1 owned rows};
-\node[halo] (h1) at (0,0.95) {halo ($R$ rows)};
-\node[slab] (s2) at (0,0.4) {GPU 2 owned rows};
-\node[rotate=90] at (-2.2,1.5) {full image $H\times W$};
-% root: scatter input rows, gather disparity rows
-\node[draw, rounded corners, fill=gray!15, align=center] (root) at (5.4,1.5) {rank 0\\(root)};
-\draw[->, thick] (root) -- node[above, font=\scriptsize] {\texttt{Scatterv} rows} (s0.east);
-\draw[<-, thick] (root) -- node[below, font=\scriptsize] {\texttt{Gatherv} disp.} (s2.east);
-% halo exchange between neighbours (Sendrecv)
-\node[font=\scriptsize, orange!60!black, align=center] at (0,-0.25)
-  {halo rows exchanged with neighbours (\texttt{Sendrecv})};
-% SGM vertical frontier passed down the rank pipeline
-\draw[->, very thick, red!75!black] ([xshift=1.35cm]s0.south) -- ([xshift=1.35cm]s1.north);
-\draw[->, very thick, red!75!black] ([xshift=1.35cm]s1.south) --
-  node[right, font=\scriptsize, red!75!black, align=left] {SGM frontier\\($W{\times}D$, pipeline)} ([xshift=1.35cm]s2.north);
-\end{tikzpicture}
-\caption{MPI row decomposition (illustrated for 3 GPUs). Each rank owns a slab of
-rows plus $R$ halo rows from each neighbour (exchanged with \texttt{Sendrecv});
-rank~0 scatters input rows and gathers disparities. Local SAD needs only this.
-Distributed SGM additionally pipelines the per-column vertical \emph{frontier}
-($W{\times}D$ aggregated costs) from one rank to the next so the semi-global
-optimum is preserved across slab boundaries (Sec.~\ref{sec:scaling}).}
-\label{fig:decomp}
-\end{figure}
+For local SAD, one thread per output pixel loops over candidate disparities and
+computes the window cost. We implemented three variants to study the tradeoff
+between shared-memory staging and register-based reuse. All three tile the image with a
+$\lceil W/BW\rceil \times \lceil H/BH\rceil$ grid; the \texttt{basic} and
+\texttt{smem} variants use $16\times16$ blocks and the \texttt{tiled} variant
+uses $16\times8$ to leave more register capacity for the per-disparity
+accumulator. Consecutive threads in the $x$-direction read adjacent columns, so
+global memory accesses are coalesced. The \texttt{smem} kernel stages both image
+tiles into shared memory; the right tile spans $D_{\max}$ extra columns so all
+disparity candidates are covered without additional global reads. The
+\texttt{tiled} kernel keeps the full \texttt{sad[64]} cost array in registers,
+reusing each left-image pixel across all disparities. Because the full cost
+array is already in registers, the kernel also fits a parabola through the three
+SAD values around the winning disparity to recover a fractional offset, improving
+accuracy below one pixel at no extra memory cost.
+
+The main correctness challenge was keeping border handling consistent: pixels
+near any edge lack a full SAD window, and pixels near the left edge lack some
+disparity candidates. Early versions used a validity mask that did not match the
+kernel bounds checks exactly, so the GPU and CPU results disagreed even when the
+core loop was correct. We fixed this with one shared validity definition across
+the CPU reference, all kernels, and the error checks. The main performance
+challenge was register pressure in the tiled kernel: the \texttt{sad[64]} array
+risked spilling, and after tuning the accumulator the kernel reached useful
+throughput. Profiling counters and roofline position for all three variants are
+in Table~\ref{tab:kernels}, Table~\ref{tab:ncu}, and Figure~\ref{fig:roofline}.
+
+SGM uses a different mapping. The cost volume layout \texttt{C[(r*W+c)*D+d]}
+places consecutive disparities at consecutive addresses, so threads assigned to
+consecutive disparities read the cost volume with coalesced accesses. The SGM
+recurrence creates a serial dependency along each path, which is the main parallelization challenge. Each
+aggregation kernel launch assigns one block per scanline ($H$ blocks for
+horizontal, $W$ for vertical) with \texttt{next\_pow2(D)} threads so each thread
+owns one disparity. Each block walks its scanline sequentially, keeping the
+previous pixel's costs in shared memory and computing the required
+minimum-over-disparities as a binary-tree reduction at each step.
+
+Both SAD and SGM use the same row decomposition across ranks: rank $i$ owns a
+contiguous slab of rows and exchanges $R$ halo rows with its neighbors via \texttt{MPI\_Sendrecv}. A row
+split is better than a column split because the disparity search is horizontal;
+a column split would require a halo of $D_{\max}+R$ columns, which for
+$D_{\max}=64$, $R=2$ is much larger. Rank 0 distributes input slabs with
+\texttt{MPI\_Scatterv} and collects results with \texttt{MPI\_Gatherv}. The main
+MPI debugging challenge was that halo rows must be included for computation but
+excluded from the gather, so the \texttt{Scatterv} counts, halo offsets, and
+\texttt{Gatherv} displacements all have to agree. Each rank binds to a GPU with
+\texttt{cudaSetDevice(rank \% num\_devices)} and uses page-locked buffers for
+async H2D/D2H copies. Per-phase timing is in Table~\ref{tab:phases}. For distributed SGM, the horizontal paths are local to each rank, but the
+vertical paths span the full image height. To preserve the global SGM optimum,
+each rank finishes its portion of the vertical sweep and then sends the resulting
+per-column path costs ($W\times D$ integers) to the next rank, which uses them
+to seed its continuation of the recurrence. The diagonal paths of 8-path SGM are
+omitted because each diagonal crosses two different rank boundaries, requiring
+state exchange with two neighbors simultaneously. This creates a
+strict pipeline dependency across ranks for each vertical sweep, which is why
+SGM scales worse than SAD even when raw communication volume is small.
+Strong-scaling results are in Figure~\ref{fig:scaling}.
 
 % ===========================================================================
 \section{Performance Model}
 \label{sec:model}
 % ===========================================================================
 
-\emph{Roofline}~\cite{williams2009}. Each pixel performs $2(2R{+}1)^2D_{\max}$
-integer ops and, with no reuse, loads as many bytes (8-bit pixels), so the naive
-operational intensity is $\mathrm{OI}\approx1$\,op/byte. On the Quadro RTX 6000
-(672\,GB/s DRAM, $\sim$16.3\,TOps/s) the roofline ridge is $\approx$24\,op/byte,
-so SAD is firmly DRAM-bound with a naive ceiling of $\sim$672\,GOps/s. The
-falsifiable prediction: performance is set not by arithmetic but by how much
-reuse a kernel pulls into the on-chip hierarchy (L2 $\to$ shared memory $\to$
-registers).
+We use the performance model to predict which parts of the implementation should
+scale well and which parts should become bottlenecks. The model combines a
+roofline-style analysis for the CUDA kernels with a simple communication model
+for the MPI version.
 
-\emph{Communication ($\alpha+\beta n$)}. Scatter and gather route through rank 0,
-which moves $\Theta(HW)$ bytes regardless of $P$ and serializes them, while the
-point-to-point halo stays negligible. The model predicts rooted-collective time
-that \emph{grows} with $P$ and is the source of strong-scaling loss.
+For local SAD, the main question is whether the kernel is limited by arithmetic
+throughput or by memory movement. Each output pixel evaluates $D_{\max}$
+candidate disparities, and each disparity compares a $(2R+1)\times(2R+1)$
+window. Counting one subtraction and one absolute value per window entry, the
+work is roughly $2(2R+1)^2D_{\max}$ integer operations per pixel. A naive implementation also reloads many 8-bit
+image values, so its operational intensity is only about one operation per byte.
 
-\emph{Amdahl}. Writing $T(P)=T_{\text{comp}}/P+T_{\text{comm}}(P)+T_0$, a larger
-image has a smaller serial fraction and must scale better---tested in
-Sec.~\ref{sec:scaling}.
+On the Quadro RTX 6000, this is far below the roofline ridge, which is shown in Figure~\ref{fig:roofline}. The GPU has about
+672 GB/s of DRAM bandwidth and 16.3 TFLOPS of peak integer throughput, giving a
+ridge point of approximately
+\[
+16.3\ \text{TFLOPS} / 672\ \text{GB/s} \approx 24\ \text{ops/byte}.
+\]
+This predicts that SAD should be memory-bound, so the important optimizations
+are the ones that improve reuse. We therefore expect \texttt{basic} to be
+slowest, \texttt{smem} to improve performance by reusing image tiles in shared
+memory, and the register-tiled version to help only if the extra register usage
+does not reduce occupancy too much, as shown in Table~\ref{tab:kernels}.
+
+SGM should be even more sensitive to memory traffic. It materializes a full cost
+volume and repeatedly streams cost and aggregation arrays for each path
+direction. Its recurrence also limits parallelism because each path depends on
+the previous pixel in that direction. As a result, we expect SGM to be slower
+than local SAD and to scale less cleanly, even before adding MPI, as confirmed by Table~\ref{tab:ncu}.
+
+For the distributed implementation, we model communication as
+$\alpha+\beta n$, where $\alpha$ is the message latency and $\beta n$ is the
+bandwidth cost. The row decomposition keeps halo exchange small because each
+rank only sends $R$ rows to its neighbors. The larger cost comes from scatter and
+gather, which move the input slabs and output disparity slabs through rank 0.
+
+Combining compute and communication gives
+\[
+T(P) = \frac{T_{\mathrm{comp}}}{P} + T_{\mathrm{comm}}(P) + T_0,
+\]
+where $T_{\mathrm{comp}}$ is the parallel GPU work, $T_{\mathrm{comm}}(P)$ is
+MPI and transfer time, and $T_0$ includes fixed overheads such as kernel launches
+and synchronization. This predicts that local SAD should have near-ideal kernel
+scaling, since the row slabs divide the pixel work evenly, but lower wall-clock
+scaling because communication and fixed overheads do not shrink with $P$
+(Figure~\ref{fig:scaling}, Table~\ref{tab:strong}).
+
+The model also predicts that larger images should scale better because each rank
+gets more useful GPU work to amortize overhead (Table~\ref{tab:strong}). For distributed SGM, the vertical paths require each rank to pass its boundary path state ($W\times D$ integers) to the next before it can continue, creating a strict dependency that limits scaling (Table~\ref{tab:sgmscale}).
+
 
 % ===========================================================================
 \section{Benchmarking, Instrumentation, and Bottlenecks}
-\label{sec:bottleneck}
+\label{sec:bottlenecks}
 % ===========================================================================
 
-Kernels are timed with CUDA events (mean of 10--20 launches after a warm-up),
-MPI phases with \texttt{MPI\_Wtime} barriers, and kernels are profiled in Nsight
-Compute. All runs use four Quadro RTX 6000 GPUs on one node.
+We timed CUDA kernels with CUDA events after a warmup run, MPI phases with \texttt{MPI\_Wtime}, and profiled selected kernels with Nsight Compute. The measurements show two different bottlenecks. On one GPU, local SAD is limited mostly by memory movement. Across GPUs, the local SAD computation divides well, but the wall-clock time becomes limited by communication and fixed overheads.
 
-\emph{Single-GPU kernels} (Table~\ref{tab:kernels}, Fig.~\ref{fig:roofline}).
-\texttt{basic} runs at 996\,GOps/s, \texttt{tiled} 1742, \texttt{smem} 2030: the
-ordering is set by data reuse, not arithmetic---the memory-bound signature.
-\texttt{basic} already exceeds the 672\,GOps/s DRAM ceiling, so its reads are
-served from L2; \texttt{smem} wins ($2.0\times$ over \texttt{basic}) by turning
-implicit L2 reuse into explicit shared-memory reuse. Nsight Compute
-(Table~\ref{tab:ncu}) confirms this directly: \texttt{basic} draws only 0.2\% of
-DRAM bandwidth at $\sim$48\% pipe utilization (latency-bound); \texttt{smem}
-saturates both compute and memory pipes at 95\% (shared-memory-bound, fastest);
-\texttt{tiled} pulls 41\% of DRAM and drops to 69\% occupancy from \texttt{sad[64]}
-register pressure. SGM's cost build and aggregation are DRAM-bound (39--67\%) at
-low occupancy: SGM materializes the full $H\,W\,D$ cost/accumulator volumes and
-streams them five times (one build + four passes), the root of its
-$\sim$15$\times$ slowdown versus local SAD.
+For the single-GPU SAD kernels, the main issue is moving image data through the
+GPU memory hierarchy efficiently. As predicted by the roofline model
+(Figure~\ref{fig:roofline}), the operation count is not high enough for the
+kernel to be compute-bound. The shared-memory kernel performs best because it
+makes the patch reuse explicit: instead of repeatedly loading the same
+neighboring pixels from global memory, it stages tiles on chip and reuses them
+across threads (Table~\ref{tab:kernels}).
 
-\emph{MPI phases} (Table~\ref{tab:phases}). The halo exchange is negligible and
-constant (0.02--0.04\,ms), validating the row decomposition, while the rooted
-scatter+gather grow with $P$ (0.26$\to$3.24\,ms from 1 to 4 ranks) even though
-each slab shrinks. As the model predicted, the distributed bottleneck is
-root-serialized collective bandwidth---not compute, not halo.
+The register-tiled kernel shows why more reuse is not always better by itself.
+Keeping a per-thread array of disparity costs reduces redundant work, but it also
+increases register usage. That lowers occupancy, leaving fewer active warps to
+hide memory latency. In this case, the bottleneck is not only bandwidth; it is
+also the balance between register pressure, occupancy, and latency hiding
+(Table~\ref{tab:ncu}).
+
+SGM is limited by a larger memory footprint and by its path dependencies. SGM
+builds and streams full cost and aggregation volumes, so it moves much more data
+than local SAD. Its recurrence also prevents all pixels along a path from being
+computed independently (Table~\ref{tab:ncu}). This makes SGM more expensive
+even before distributing it, and the distributed version adds another dependency
+through the vertical boundary state exchange.
+
+For the MPI version, the row decomposition avoids the most obvious communication
+problem: halo exchange stays small because each rank only sends a few boundary
+rows to its neighbors (Table~\ref{tab:phases}). The remaining bottleneck is the
+rooted scatter and gather. As we add ranks, the GPU work per rank shrinks, but
+communication through rank 0, host-device transfers, kernel launches, and
+synchronization do not shrink in the same way (Figure~\ref{fig:scaling},
+Table~\ref{tab:strong}). This is also why larger images scale better: they give
+each rank enough work to amortize those fixed costs, while small slabs are
+dominated by overhead.
+
+
+
 
 % ===========================================================================
 \section{Algorithmic Variants and Their Effect}
 \label{sec:variants}
 % ===========================================================================
 
-\emph{SAD vs.\ LRC vs.\ SGM} (Table~\ref{tab:accuracy}, Fig.~\ref{fig:qual};
-identical SAD data term, scored against Middlebury ground truth). The three are
-points on an accuracy/cost/density curve. Local SAD is fastest ($\sim$0.2\,ms)
-and dense but error-prone (13--20\% bad pixels). LRC roughly halves the error by
-\emph{rejecting} unreliable matches, trading 11--18\% of coverage for
-cleanliness. SGM roughly halves the bad-pixel rate \emph{at full coverage}
-(tsukuba $20.4{\to}7.4\%$, venus $20.4{\to}9.1\%$) at $4\text{--}6\times$ the cost
-of tiled SAD. The deployment choice is dense depth (SGM) versus
-sparse-but-trustworthy depth (LRC).
+We tested several variants to understand the tradeoff between speed, accuracy,
+and robustness. The main comparison is between local SAD, SAD with a left-right
+consistency check, and SGM. Local SAD is the fastest method, running in about
+0.2 ms on the Middlebury-sized images~\cite{scharstein2002}
+(Table~\ref{tab:accuracy}, Figure~\ref{fig:qual}), but it also makes the most
+mistakes. On \texttt{tsukuba}, it has 20.4\% bad pixels, while 4-path SGM
+reduces this to 7.4\%. On \texttt{venus}, SGM reduces the bad-pixel rate from
+20.4\% to 9.1\%. The cost is runtime: SGM is about $4$--$6\times$ slower than
+tiled SAD because it builds a cost volume and aggregates that cost along multiple
+paths. This is the basic tradeoff we see between the two methods. SAD is easier
+to parallelize and scale, while SGM gives better dense results by doing more
+work and moving more data.
 
-\emph{4 vs.\ 8 paths.} Adding the four diagonal paths nearly doubles SGM runtime
-(tsukuba $1.1{\to}2.0$\,ms) for negligible accuracy change ($7.4{\to}7.7\%$ bad)
-on these largely fronto-parallel scenes---a clean diminishing-returns variant
-that doubles the dominant DRAM traffic without changing the result, so 4 paths is
-our default.
+The left-right consistency check sits between these two options. It runs a
+second matching pass with the images swapped and rejects pixels whose disparities
+do not agree. This improves the quality of the remaining pixels, but it also
+means the output is no longer fully dense. On \texttt{tsukuba}, the bad-pixel
+rate drops from 20.4\% to 12.8\%, while coverage drops to 83.6\%. This makes LRC
+useful when we care more about reliable depth than complete coverage.
 
-\emph{SAD vs.\ Census data term} (Table~\ref{tab:census}). On radiometrically
-matched pairs Census is slightly worse than SAD (it discards magnitude). Its
-value appears under camera mismatch: scaling the right image by gain 1.4 and bias
-15 (different exposure) makes \textbf{every SAD-based method collapse} (tsukuba
-$7{\to}87\%$ bad) while \textbf{Census is essentially unchanged}
-($12{\to}14\%$), because Census encodes only local intensity \emph{ordering},
-which a monotonic gain/bias preserves. For a rig with per-camera auto-exposure
-this robustness is decisive.
+We also tested 4-path versus 8-path SGM. Adding the diagonal paths nearly doubles
+the runtime on \texttt{tsukuba}, from about 1.1 ms to 2.0 ms, but it does not
+improve accuracy on our scenes. The bad-pixel rate changes from 7.4\% to 7.7\%.
+Since the extra paths mainly add more passes over the same cost and aggregation
+buffers, they increase memory traffic without giving us a better result. For our
+experiments, 4-path SGM is the better choice.
+
+The last variant is the data term used inside SGM. SAD is simple and works well
+when the two images have similar brightness, but it is sensitive to exposure
+changes. Census is slightly worse on matched images because it discards raw
+intensity magnitude, but it is much more robust when the cameras do not have the
+same brightness~\cite{zabih1994}. When we perturb the right image with gain 1.4
+and bias 15, SAD-based SGM on \texttt{tsukuba} goes from 7.4\% bad pixels to
+87.2\%. Census, in contrast, changes only from 12.0\% to 13.6\%
+(Table~\ref{tab:census}). This does not mainly change the runtime bottleneck; it
+changes the failure mode. Census gives up a little matched-image accuracy, but
+it is the better choice when exposure mismatch is expected.
+
 
 % ===========================================================================
 \section{Scalability Analysis}
 \label{sec:scaling}
 % ===========================================================================
 
-\emph{Strong scaling} (Table~\ref{tab:strong}, Fig.~\ref{fig:scaling}). The GPU
-kernel time scales almost ideally ($3.85\times$/$4.02\times$ at 4 ranks),
-confirming balanced compute, but wall speedup is lower ($2.70\times$/$3.42\times$)
-because the rooted collectives do not shrink. As Amdahl predicted, the larger
-image scales better: 4-rank wall efficiency is 85\% for $1920\times2560$ but 68\%
-for $960\times1280$, since the bigger image gives each GPU enough work to amortize
-the fixed communication.
+We evaluate scalability in two ways. For strong scaling, we fix the total image
+size and increase the number of ranks. For weak scaling, we keep the number of
+rows per rank fixed and increase the total image size with the number of ranks.
+The speedups and efficiencies are reported in Table~\ref{tab:strong},
+Table~\ref{tab:sgmscale}, and Figure~\ref{fig:scaling}.
 
-\emph{Weak scaling} (480 rows/rank, Fig.~\ref{fig:scaling}). Kernel time is flat
-at 0.99\,ms across 1/2/4 ranks (ideal), and wall efficiency stays 91\% at 4
-ranks; the only erosion is the $\Theta(P)$ growth of the root collective.
-Isoefficiency therefore requires the per-rank slab (not just the total image) to
-grow, consistent with the strong-scaling trend.
+For local SAD, the GPU kernel itself scales close to ideally. In the strong
+scaling runs, the 4-rank kernel speedup is about $3.85\times$ for the
+$960\times1280$ image and $4.02\times$ for the $1920\times2560$ image. This
+shows that the row decomposition balances the pixel work well across GPUs. The
+wall-clock speedup is lower because communication and fixed overheads remain in
+the full runtime. At 4 ranks, wall speedup is $2.70\times$ for the smaller image
+and $3.42\times$ for the larger image.
 
-\emph{Distributed SGM} (Table~\ref{tab:sgmscale}). Under the row decomposition,
-SGM's horizontal paths are rank-local but its vertical paths are columns that
-cross every boundary. To keep the \emph{global} optimum we pass each rank's
-boundary cost row (the ``frontier'', $W\!\times\!D$ ints) to the next rank, which
-resumes the recurrence---making the vertical sweep a \textbf{serial pipeline}
-across ranks (rank $i$ waits for $i{-}1$). The result is exact (byte-identical to
-single-GPU, Sec.~\ref{sec:correct}) but reaches only $1.7\times$/$2.2\times$ at 4
-ranks, far below SAD's $2.7\times$/$3.4\times$, despite communication under 12\%.
-The gap is \emph{computational}: the vertical pipeline serializes $\sim$40--50\%
-of the aggregation. This is the central lesson---global coupling that aids
-accuracy fights decomposition: a local method (SAD) distributes embarrassingly, a
-semi-global one does not, exactly the Amdahl trade-off from lecture.
+The larger image scales better because each rank has more useful GPU work to
+amortize the non-scaling costs: the $960\times1280$ run reaches 68\% efficiency
+at 4 ranks while the $1920\times2560$ run reaches 85\%, matching the model from
+Section~\ref{sec:model}. Weak scaling confirms this: with 480 rows per rank
+fixed, kernel time stays flat at 0.99 ms and wall efficiency is 91\% at 4 ranks,
+with losses from scatter and gather rather than halo exchange.
+
+Distributed SGM scales worse than local SAD. For the larger image, 4-rank SGM
+reaches $2.17\times$ wall speedup, compared with $3.42\times$ for local SAD. The
+reason is the vertical path dependency discussed earlier: to match the
+single-GPU result exactly, each rank must receive the frontier from the previous
+rank before continuing part of the recurrence. This means SGM still benefits
+from multiple GPUs, but not as cleanly as local SAD. The multi-GPU approach works
+best when each rank has enough image rows, disparity levels, or algorithmic work
+to offset these fixed and dependency costs.
+
 
 % ===========================================================================
 \section{Correctness and Verification}
 \label{sec:correct}
 % ===========================================================================
 
-Against a CPU reference on the synthetic pair ($d^\star{=}24$), integer SAD
-reproduces MAE $=0.000$\,px and $0\%$ bad pixels; with sub-pixel the tiled kernel
-gives MAE $=0.040$\,px (a harmless fractional residual on integer ground truth)
-and still $0\%$ bad. The distributed SAD result is identical on 1, 2, and 4 ranks
-(MAE $0.0397$, $0\%$ bad, full coverage), confirming the Scatterv/halo/Gatherv
-logic neither drops nor duplicates rows. On real pairs we score against
-Middlebury ground truth (Table~\ref{tab:accuracy}; per-dataset disparity scale,
-gray~0 = unknown). Finally, distributed SGM is \emph{exact}: its 4-rank output is
-byte-identical to the 1-rank output on \texttt{tsukuba} (\texttt{cmp}) and
-identical across ranks on synthetic data---any frontier-indexing, pipeline-order,
-or halo bug would break the bitwise match.
-\TODO{re-paste exact numbers if you re-run, to keep text/tables in sync with
-\texttt{results/sgm\_compare.log} and \texttt{sgm\_scaling.csv}.}
+We checked correctness using both synthetic data and real stereo pairs. For a
+synthetic pair with known disparity $d^\star=24$, the integer SAD kernel matches
+the CPU reference exactly (MAE $=0.000$ px, 0\% bad pixels), and sub-pixel
+refinement gives MAE $=0.040$ px as expected. Changing the number of MPI ranks
+does not change this result: the 1-, 2-, and 4-rank runs all agree at MAE
+$\approx0.040$ px, verifying that scatter, halo exchange, and gather are
+consistent. This was the check that caught most boundary and offset mistakes.
+
+We also evaluated the real image results against Middlebury ground truth
+(Table~\ref{tab:accuracy}). These tests report MAE, bad-pixel rate, coverage,
+and runtime, and they are useful because they include the difficult cases that
+the synthetic pair does not: textureless regions, occlusions, and depth
+boundaries.
+
+Finally, we checked distributed SGM against the single-GPU SGM output. On
+\texttt{tsukuba}, the 4-rank distributed result is byte-identical to the 1-rank
+result. This is a strong correctness check because any mistake in the frontier
+exchange or rank-boundary indexing would change the accumulated path costs.
+
+
 
 % ===========================================================================
 \section{Discussion, Limitations, and Future Work}
 % ===========================================================================
 
-The biggest payoffs were shared-memory tiling ($2.0\times$, by attacking memory
-bandwidth rather than arithmetic) and replacing the full-image broadcast with
-\texttt{Scatterv}+\texttt{Sendrecv} (the cheap halo is what lets the large image
-hold 85\% efficiency at 4 GPUs). Distributing SGM with frontier exchange was
-worth it for the insight: it keeps the exact optimum while exposing the
-serial-vertical Amdahl floor. Less worthwhile here: the 8-path diagonals (double
-cost, no accuracy gain) and the tiled kernel's fixed 64-slot loop (register
-pressure at small $D_{\max}$; a templated bound would help). With more time we
-would overlap communication with computation, use CUDA-aware MPI to exchange
-frontiers GPU-to-GPU, fuse SGM's four passes to cut its dominant DRAM traffic,
-and test a multi-node NVLink/InfiniBand interconnect to see whether the
-root-collective bottleneck persists.
+The most useful optimization for local SAD was shared-memory tiling. It gave a $2.0\times$ speedup because it targeted the real bottleneck: memory reuse (Table~\ref{tab:kernels}). Replacing the earlier full-image broadcast with \texttt{Scatterv} plus neighbor halo exchange was also important. Since the halo is small, the large-image SAD run is able to keep $85%$ efficiency on 4 GPUs.
+
+The less successful optimizations were also useful. The 8-path SGM variant nearly doubled runtime without improving accuracy on the tested scenes, so it is not a good tradeoff here. The register-tiled SAD kernel improved reuse, but the fixed 64-entry per-thread cost array increased register pressure and reduced occupancy. A version specialized to smaller $D_{\max}$ values would likely reduce this overhead.
+
+The main limitation is that some communication still goes through rank 0. This is acceptable up to 4 GPUs on one node, but it would likely become a bottleneck on more GPUs or multiple nodes. Distributed SGM has another limitation: it preserves exactness by using a serial frontier pipeline, which limits scalability. With more time, we would overlap communication with computation, use CUDA-aware MPI for GPU-to-GPU exchanges, reduce SGM memory traffic by fusing passes where possible, and test on a multi-node system to see whether the same root-collective bottleneck remains.
+
 
 % ===========================================================================
 \appendix
@@ -581,41 +627,29 @@ produces in low-texture regions while keeping depth edges sharp.}
 On \texttt{tsukuba} ($D_{\max}{=}16$) the bad-pixel rate falls monotonically as
 $P_1$ rises ($P_1{=}20$: 11.6\%; $P_1{=}80$: 9.3\%; $P_1{=}200,P_2{=}500$: 7.4\%);
 penalties have no measurable runtime effect. We fixed $P_1{=}200$, $P_2{=}500$ to
-keep $P_2>P_1$ and avoid degenerate over-smoothing (full sweep in
-\texttt{results/}).
-
-\section{Reproducibility}
-Build with \texttt{make}; all GPU runs go through SLURM on \texttt{gpu-turing}
-(no GPU on the login node). Scripts: \texttt{run\_verify\_opt.sh} (SAD
-optimizations + accuracy), \texttt{run\_sgm\_final.sh} (SGM vs SAD),
-\texttt{run\_sgm\_variants.sh} (4/8-path $\times$ SAD/Census),
-\texttt{run\_census\_robust.sh} (radiometric), \texttt{run\_scaling\_final.sh}
-(SAD scaling), \texttt{run\_sgm\_dist.sh} (distributed-SGM exactness + scaling),
-\texttt{run\_ncu\_profile.sh} (Nsight Compute \texttt{.ncu-rep} reports).
-Hardware: one node, 4$\times$Quadro RTX 6000 (Turing, sm\_75, 24\,GB, 672\,GB/s),
-NVIDIA HPC SDK (\texttt{nvcc}, \texttt{nvc++}, HPC-X MPI).
+keep $P_2>P_1$ and avoid degenerate over-smoothing.
 
 \bibliographystyle{ieeetr}
-% \TODO verify each entry against the original paper; swap to a .bib if preferred.
 \begin{thebibliography}{9}
 \bibitem{scharstein2002} D.~Scharstein and R.~Szeliski, ``A taxonomy and
-evaluation of dense two-frame stereo correspondence algorithms,'' \emph{IJCV},
-47(1--3):7--42, 2002. \CITE{Middlebury taxonomy + dataset}
+evaluation of dense two-frame stereo correspondence algorithms,'' \emph{Int.\ J.\ Comput.\ Vis.},
+47(1--3):7--42, 2002.
 \bibitem{hirschmuller2008} H.~Hirschm\"uller, ``Stereo processing by
-semiglobal matching and mutual information,'' \emph{IEEE TPAMI},
-30(2):328--341, 2008. \CITE{original SGM}
+semiglobal matching and mutual information,'' \emph{IEEE Trans.\ Pattern Anal.\ Mach.\ Intell.},
+30(2):328--341, 2008.
 \bibitem{zabih1994} R.~Zabih and J.~Woodfill, ``Non-parametric local transforms
-for computing visual correspondence,'' \emph{ECCV}, 1994. \CITE{Census transform}
-\bibitem{hernandez2016} D.~Hern\'andez-Ju\'arez et al., ``Embedded real-time
-stereo estimation via semi-global matching on the GPU,'' \emph{ICCS}, 2016. \CITE{libSGM}
-\bibitem{opencv} G.~Bradski, ``The OpenCV Library,'' \emph{Dr.\ Dobb's J.}, 2000. \CITE{OpenCV}
-\bibitem{nvidiavpi} NVIDIA, ``VPI: Vision Programming Interface --- Stereo
-Disparity,'' developer documentation. \CITE{NVIDIA VPI URL + version}
+for computing visual correspondence,'' in \emph{Proc.\ ECCV}, pp.~151--158, 1994.
+\bibitem{hernandez2016} D.~Hern\'andez-Ju\'arez, A.~Chac\'on, A.~Espinosa,
+D.~V\'azquez, J.~C.~Moure, and A.~M.~L\'opez, ``Embedded real-time stereo
+estimation via semi-global matching on the GPU,'' in \emph{Proc.\ ICCS}, 2016.
+\bibitem{opencv} G.~Bradski, ``The OpenCV Library,'' \emph{Dr.\ Dobb's J.\ Softw.\ Tools}, 2000.
+\bibitem{nvidiavpi} NVIDIA, ``VPI: Vision Programming Interface---Stereo
+Disparity,'' developer documentation. \CITE{verify URL and version}
 \bibitem{chang2018} J.-R.~Chang and Y.-S.~Chen, ``Pyramid stereo matching
-network,'' \emph{CVPR}, 2018. \CITE{deep-stereo; swap for RAFT-Stereo if preferred}
+network,'' in \emph{Proc.\ CVPR}, pp.~5410--5418, 2018.
 \bibitem{williams2009} S.~Williams, A.~Waterman, and D.~Patterson, ``Roofline:
 an insightful visual performance model for multicore architectures,''
-\emph{CACM}, 52(4):65--76, 2009. \CITE{roofline}
+\emph{Commun.\ ACM}, 52(4):65--76, 2009.
 \end{thebibliography}
 
 \end{document}
